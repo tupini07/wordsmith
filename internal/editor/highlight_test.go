@@ -4,13 +4,15 @@ import (
 	"testing"
 )
 
+var noState = HighlightState{}
+
 func TestHighlightHeading(t *testing.T) {
 	theme := GruvboxTheme()
 	line := []rune("# Hello World")
-	tokens, inFM := HighlightLine(line, theme, false, 5)
+	tokens, st := HighlightLine(line, theme, noState, 5)
 
-	if inFM {
-		t.Error("heading should not set frontmatter state")
+	if st.InFrontmatter || st.InCodeBlock {
+		t.Error("heading should not change state")
 	}
 	if len(tokens) != 1 {
 		t.Fatalf("expected 1 token for heading, got %d", len(tokens))
@@ -24,14 +26,14 @@ func TestHighlightFrontmatter(t *testing.T) {
 	theme := GruvboxTheme()
 
 	// Opening delimiter (must be line 0)
-	_, inFM := HighlightLine([]rune("---"), theme, false, 0)
-	if !inFM {
+	_, st := HighlightLine([]rune("---"), theme, noState, 0)
+	if !st.InFrontmatter {
 		t.Error("--- on line 0 should enter frontmatter")
 	}
 
 	// Content inside frontmatter
-	tokens, inFM := HighlightLine([]rune("title: test"), theme, true, 1)
-	if !inFM {
+	tokens, st := HighlightLine([]rune("title: test"), theme, HighlightState{InFrontmatter: true}, 1)
+	if !st.InFrontmatter {
 		t.Error("should still be in frontmatter")
 	}
 	if len(tokens) != 1 {
@@ -39,8 +41,8 @@ func TestHighlightFrontmatter(t *testing.T) {
 	}
 
 	// Closing delimiter
-	_, inFM = HighlightLine([]rune("---"), theme, true, 2)
-	if inFM {
+	_, st = HighlightLine([]rune("---"), theme, HighlightState{InFrontmatter: true}, 2)
+	if st.InFrontmatter {
 		t.Error("closing --- should exit frontmatter")
 	}
 }
@@ -49,15 +51,40 @@ func TestHighlightHRNotFrontmatter(t *testing.T) {
 	theme := GruvboxTheme()
 
 	// --- on a non-zero line when not in frontmatter → HR, not frontmatter
-	_, inFM := HighlightLine([]rune("---"), theme, false, 10)
-	if inFM {
+	_, st := HighlightLine([]rune("---"), theme, noState, 10)
+	if st.InFrontmatter {
 		t.Error("--- on a non-first line should NOT enter frontmatter")
+	}
+}
+
+func TestHighlightCodeFence(t *testing.T) {
+	theme := GruvboxTheme()
+
+	// Opening fence
+	_, st := HighlightLine([]rune("```sql"), theme, noState, 5)
+	if !st.InCodeBlock {
+		t.Error("opening ``` should enter code block")
+	}
+
+	// Content inside code block
+	tokens, st := HighlightLine([]rune("SELECT * FROM users;"), theme, HighlightState{InCodeBlock: true}, 6)
+	if !st.InCodeBlock {
+		t.Error("should still be in code block")
+	}
+	if len(tokens) != 1 {
+		t.Fatalf("expected 1 token for code block content, got %d", len(tokens))
+	}
+
+	// Closing fence
+	_, st = HighlightLine([]rune("```"), theme, HighlightState{InCodeBlock: true}, 7)
+	if st.InCodeBlock {
+		t.Error("closing ``` should exit code block")
 	}
 }
 
 func TestHighlightBlockquote(t *testing.T) {
 	theme := GruvboxTheme()
-	tokens, _ := HighlightLine([]rune("> quoted text"), theme, false, 5)
+	tokens, _ := HighlightLine([]rune("> quoted text"), theme, noState, 5)
 	if len(tokens) != 1 {
 		t.Fatalf("expected 1 token for blockquote, got %d", len(tokens))
 	}
@@ -65,9 +92,8 @@ func TestHighlightBlockquote(t *testing.T) {
 
 func TestHighlightInlineBold(t *testing.T) {
 	theme := GruvboxTheme()
-	tokens, _ := HighlightLine([]rune("hello **bold** world"), theme, false, 5)
+	tokens, _ := HighlightLine([]rune("hello **bold** world"), theme, noState, 5)
 
-	// Should have: "hello ", "**bold**", " world"
 	if len(tokens) < 3 {
 		t.Fatalf("expected at least 3 tokens, got %d", len(tokens))
 	}
@@ -85,7 +111,7 @@ func TestHighlightInlineBold(t *testing.T) {
 
 func TestHighlightInlineItalic(t *testing.T) {
 	theme := GruvboxTheme()
-	tokens, _ := HighlightLine([]rune("hello *italic* world"), theme, false, 5)
+	tokens, _ := HighlightLine([]rune("hello *italic* world"), theme, noState, 5)
 
 	foundItalic := false
 	for _, tok := range tokens {
@@ -100,7 +126,7 @@ func TestHighlightInlineItalic(t *testing.T) {
 
 func TestHighlightInlineCode(t *testing.T) {
 	theme := GruvboxTheme()
-	tokens, _ := HighlightLine([]rune("use `fmt.Println` here"), theme, false, 5)
+	tokens, _ := HighlightLine([]rune("use `fmt.Println` here"), theme, noState, 5)
 
 	foundCode := false
 	for _, tok := range tokens {
@@ -115,7 +141,7 @@ func TestHighlightInlineCode(t *testing.T) {
 
 func TestHighlightLink(t *testing.T) {
 	theme := GruvboxTheme()
-	tokens, _ := HighlightLine([]rune("click [here](https://example.com) now"), theme, false, 5)
+	tokens, _ := HighlightLine([]rune("click [here](https://example.com) now"), theme, noState, 5)
 
 	foundLink := false
 	foundURL := false
@@ -137,7 +163,7 @@ func TestHighlightLink(t *testing.T) {
 
 func TestHighlightListMarker(t *testing.T) {
 	theme := GruvboxTheme()
-	tokens, _ := HighlightLine([]rune("- list item"), theme, false, 5)
+	tokens, _ := HighlightLine([]rune("- list item"), theme, noState, 5)
 
 	if len(tokens) < 2 {
 		t.Fatalf("expected at least 2 tokens, got %d", len(tokens))
@@ -149,7 +175,7 @@ func TestHighlightListMarker(t *testing.T) {
 
 func TestHighlightNumberedList(t *testing.T) {
 	theme := GruvboxTheme()
-	tokens, _ := HighlightLine([]rune("1. first item"), theme, false, 5)
+	tokens, _ := HighlightLine([]rune("1. first item"), theme, noState, 5)
 
 	if len(tokens) < 2 {
 		t.Fatalf("expected at least 2 tokens, got %d", len(tokens))

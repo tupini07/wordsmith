@@ -43,6 +43,8 @@ type Theme struct {
 	FileTreeDir lipgloss.Style
 	Margin      lipgloss.Style
 	Dimmed      lipgloss.Style
+	CodeBlock   lipgloss.Style // code block content (fenced ```...```)
+	CodeFence   lipgloss.Style // the ``` fence delimiters
 	ActiveLine  lipgloss.Style // background for the cursor's line
 }
 
@@ -105,6 +107,8 @@ func buildTheme(c ThemeColors) Theme {
 		FileTreeDir: lipgloss.NewStyle().Foreground(c.Dir).Background(bg).Bold(true),
 		Margin:      lipgloss.NewStyle().Background(bg),
 		Dimmed:      lipgloss.NewStyle().Foreground(c.Dim).Background(bg),
+		CodeBlock:   lipgloss.NewStyle().Foreground(c.InlineCode).Background(midBg),
+		CodeFence:   lipgloss.NewStyle().Foreground(c.Dim).Background(midBg),
 		ActiveLine:  lipgloss.NewStyle().Background(chromeBg),
 	}
 }

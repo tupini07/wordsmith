@@ -1931,24 +1931,27 @@ func (m Model) View() string {
 		leftMargin = (m.width - m.contentWidth) / 2
 	}
 
-	// Determine frontmatter state for visible lines.
-	// Frontmatter can only start with --- on logical line 0.
-	inFM := false
+	// Determine highlight state (frontmatter / code block) for visible lines.
+	hlState := HighlightState{}
 	if m.scrollOffset > 0 {
 		for i := 0; i < len(m.wrap.VisualLines) && i < m.scrollOffset; i++ {
 			vl := m.wrap.VisualLines[i]
 			if vl.LogicalCol == 0 {
 				line := m.buffer.Line(vl.LogicalLine)
 				trimmed := strings.TrimSpace(string(line))
+
+				// Code fences
+				if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+					hlState.InCodeBlock = !hlState.InCodeBlock
+					continue
+				}
+
 				if trimmed == "---" {
-					if inFM {
-						// Close frontmatter
-						inFM = false
+					if hlState.InFrontmatter {
+						hlState.InFrontmatter = false
 					} else if vl.LogicalLine == 0 {
-						// Open frontmatter (only on the first line)
-						inFM = true
+						hlState.InFrontmatter = true
 					}
-					// Otherwise it's an HR — ignore
 				}
 			}
 		}
@@ -1976,9 +1979,9 @@ func (m Model) View() string {
 		lineRunes := vl.Runes
 
 		// Highlight
-		tokens, newFM := HighlightLine(lineRunes, m.theme, inFM, vl.LogicalLine)
+		tokens, newState := HighlightLine(lineRunes, m.theme, hlState, vl.LogicalLine)
 		if vl.LogicalCol == 0 {
-			inFM = newFM
+			hlState = newState
 		}
 
 		// Determine cursor position on this visual line

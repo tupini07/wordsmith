@@ -31,28 +31,47 @@ const (
 	TokenHR
 )
 
+// HighlightState tracks persistent state across lines.
+type HighlightState struct {
+	InFrontmatter bool
+	InCodeBlock   bool
+}
+
 // HighlightLine tokenizes a single line of markdown for rendering.
 // logicalLine is the 0-based buffer line number, used to restrict
 // frontmatter detection to the very first line of the document.
-func HighlightLine(line []rune, theme Theme, inFrontmatter bool, logicalLine int) ([]Token, bool) {
+func HighlightLine(line []rune, theme Theme, state HighlightState, logicalLine int) ([]Token, HighlightState) {
 	s := string(line)
+	trimmed := strings.TrimSpace(s)
+
+	// Code fence delimiter (``` or ~~~)
+	if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+		if state.InCodeBlock {
+			return []Token{{Text: s, Style: theme.CodeFence}}, HighlightState{}
+		}
+		if !state.InFrontmatter {
+			return []Token{{Text: s, Style: theme.CodeFence}}, HighlightState{InCodeBlock: true}
+		}
+	}
+
+	// Inside code block — render as code, no inline parsing
+	if state.InCodeBlock {
+		return []Token{{Text: s, Style: theme.CodeBlock}}, state
+	}
 
 	// Frontmatter delimiter
-	trimmed := strings.TrimSpace(s)
 	if trimmed == "---" || trimmed == "***" || trimmed == "___" {
-		if inFrontmatter {
-			// Close frontmatter
-			return []Token{{Text: s, Style: theme.Frontmatter}}, false
+		if state.InFrontmatter {
+			return []Token{{Text: s, Style: theme.Frontmatter}}, HighlightState{}
 		}
 		if trimmed == "---" && logicalLine == 0 {
-			// Open frontmatter (only at the very start of the document)
-			return []Token{{Text: s, Style: theme.Frontmatter}}, true
+			return []Token{{Text: s, Style: theme.Frontmatter}}, HighlightState{InFrontmatter: true}
 		}
 		// Horizontal rule
-		return []Token{{Text: s, Style: theme.HR}}, false
+		return []Token{{Text: s, Style: theme.HR}}, state
 	}
-	if inFrontmatter {
-		return []Token{{Text: s, Style: theme.Frontmatter}}, true
+	if state.InFrontmatter {
+		return []Token{{Text: s, Style: theme.Frontmatter}}, state
 	}
 
 	// Heading
@@ -72,18 +91,18 @@ func HighlightLine(line []rune, theme Theme, inFrontmatter bool, logicalLine int
 			} else if level >= 3 {
 				style = theme.Heading3
 			}
-			return []Token{{Text: s, Style: style}}, false
+			return []Token{{Text: s, Style: style}}, state
 		}
 	}
 
 	// Blockquote
 	if len(trimmed) > 0 && trimmed[0] == '>' {
-		return []Token{{Text: s, Style: theme.Blockquote}}, false
+		return []Token{{Text: s, Style: theme.Blockquote}}, state
 	}
 
 	// Inline tokenization
 	tokens := tokenizeInline(line, theme)
-	return tokens, false
+	return tokens, state
 }
 
 // tokenizeInline handles bold, italic, code, and links within a line.
