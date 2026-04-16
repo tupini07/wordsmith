@@ -1,0 +1,25 @@
+# Wordsmith vault path (required for file navigation)
+vault_path: "/path/to/folder/with/markdown/notes"
+
+# How long to wait after the last edit before autosaving (default: 2s)
+autosave_delay: "2s"
+
+# Number of spaces per tab (default: 4)
+tab_width: 4
+
+# Maximum content column width for centered "zen" layout (default: 80, 0 = full width)
+content_width: 80
+
+# Show line numbers (default: false)
+show_line_numbers: false
+
+# Color theme (default: "default")
+# Available themes:
+#   - "default"   Warm, cozy palette (cream, coral, teal, orange)
+#   - "nord"      Cool blue-gray palette inspired by Nord
+#   - "dracula"   Dark purple-accented palette inspired by Dracula
+#   - "gruvbox"   Warm retro palette inspired by Gruvbox
+theme: "default"
+
+# Highlight the active (cursor) line with a subtle background (default: false)
+typewriter_highlight: false
