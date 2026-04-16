@@ -828,7 +828,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.deleteSelection()
 
 			runes := msg.Runes
-			if msg.Paste {
+			// Detect paste: either Bubble Tea's Paste flag is set, or
+			// the runes contain newlines (Windows Terminal sends pasted
+			// text as plain runes without the bracketed-paste flag).
+			isPaste := msg.Paste || runesContainNewline(runes)
+			if isPaste {
 				runes = normalizePastedText(runes)
 				m.buffer.BeginUndoGroup()
 			}
@@ -844,7 +848,7 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd) {
 					m.cursorCol++
 				}
 			}
-			if msg.Paste {
+			if isPaste {
 				m.buffer.EndUndoGroup()
 			}
 			m.clearSelection()
@@ -1826,6 +1830,15 @@ func FileWatchCmd() tea.Cmd {
 	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
 		return FileWatchTickMsg{}
 	})
+}
+
+func runesContainNewline(runes []rune) bool {
+	for _, r := range runes {
+		if r == '\n' || r == '\r' {
+			return true
+		}
+	}
+	return false
 }
 
 // normalizePastedText collapses hard-wrapped lines into paragraphs.
