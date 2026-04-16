@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -350,6 +351,53 @@ func (m *Model) fileExists(relPath string) bool {
 	return false
 }
 
+// wordLeft returns the cursor position after moving one word to the left.
+// Mirrors the editor's moveCursorWordLeft logic.
+func (m *Model) wordLeft() int {
+	runes := []rune(m.query)
+	pos := m.queryCursor
+	// skip whitespace backwards
+	for pos > 0 && unicode.IsSpace(runes[pos-1]) {
+		pos--
+	}
+	// skip word chars backwards
+	if pos > 0 && isWordChar(runes[pos-1]) {
+		for pos > 0 && isWordChar(runes[pos-1]) {
+			pos--
+		}
+	} else if pos > 0 {
+		// single punctuation char
+		pos--
+	}
+	return pos
+}
+
+// wordRight returns the cursor position after moving one word to the right.
+// Mirrors the editor's moveCursorWordRight logic.
+func (m *Model) wordRight() int {
+	runes := []rune(m.query)
+	pos := m.queryCursor
+	n := len(runes)
+	// skip whitespace forward
+	for pos < n && unicode.IsSpace(runes[pos]) {
+		pos++
+	}
+	// skip word chars forward
+	if pos < n && isWordChar(runes[pos]) {
+		for pos < n && isWordChar(runes[pos]) {
+			pos++
+		}
+	} else if pos < n {
+		// single punctuation char
+		pos++
+	}
+	return pos
+}
+
+func isWordChar(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
+}
+
 // normalizeCreatePath cleans and validates a path for file creation.
 // Returns "" if the path is invalid.
 func normalizeCreatePath(query string) string {
@@ -470,16 +518,53 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			return m, nil
 
+		case msg.Alt && msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && (msg.Runes[0] == 'd' || msg.Runes[0] == 'D'):
+			// Delete word forward (alt+d), matching editor behaviour
+			runes := []rune(m.query)
+			end := m.wordRight()
+			if end > m.queryCursor {
+				runes = append(runes[:m.queryCursor], runes[end:]...)
+				m.query = string(runes)
+				if !m.renameMode {
+					m.cursor = 0
+					m.updateMatches()
+				}
+			}
+			return m, nil
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+w", "ctrl+h", "ctrl+backspace"))):
+			// Delete word backward, matching editor behaviour
+			runes := []rune(m.query)
+			start := m.wordLeft()
+			if start < m.queryCursor {
+				runes = append(runes[:start], runes[m.queryCursor:]...)
+				m.query = string(runes)
+				m.queryCursor = start
+				if !m.renameMode {
+					m.cursor = 0
+					m.updateMatches()
+				}
+			}
+			return m, nil
+
 		case key.Matches(msg, key.NewBinding(key.WithKeys("left"))):
 			if m.queryCursor > 0 {
 				m.queryCursor--
 			}
 			return m, nil
 
+		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+left"))):
+			m.queryCursor = m.wordLeft()
+			return m, nil
+
 		case key.Matches(msg, key.NewBinding(key.WithKeys("right"))):
 			if m.queryCursor < len([]rune(m.query)) {
 				m.queryCursor++
 			}
+			return m, nil
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+right"))):
+			m.queryCursor = m.wordRight()
 			return m, nil
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("home"))):
@@ -556,14 +641,17 @@ func (m Model) View() string {
 	}
 
 	inputStyle := m.theme.input.Width(0) // don't constrain inner width
+	// Text style for non-cursor characters (matches input background so
+	// moving the cursor doesn't reveal the terminal's default background).
+	textStyle := lipgloss.NewStyle().Foreground(m.theme.input.GetForeground()).Background(m.theme.input.GetBackground())
 	var queryRendered string
 	if qc < len(qRunes) {
-		before := string(qRunes[:qc])
-		cursorCh := string(qRunes[qc : qc+1])
-		after := string(qRunes[qc+1:])
-		queryRendered = before + m.theme.inputCursor.Render(cursorCh) + after
+		before := textStyle.Render(string(qRunes[:qc]))
+		cursorCh := m.theme.inputCursor.Render(string(qRunes[qc : qc+1]))
+		after := textStyle.Render(string(qRunes[qc+1:]))
+		queryRendered = before + cursorCh + after
 	} else {
-		queryRendered = m.query + m.theme.inputCursor.Render(" ")
+		queryRendered = textStyle.Render(m.query) + m.theme.inputCursor.Render(" ")
 	}
 
 	inputContent := prompt + queryRendered
