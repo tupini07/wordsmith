@@ -1969,7 +1969,7 @@ func (m Model) View() string {
 		lineRunes := vl.Runes
 
 		// Highlight
-		tokens, newFM := HighlightLine(lineRunes, m.theme, inFM)
+		tokens, newFM := HighlightLine(lineRunes, m.theme, inFM, vl.LogicalLine)
 		if vl.LogicalCol == 0 {
 			inFM = newFM
 		}

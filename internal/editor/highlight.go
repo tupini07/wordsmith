@@ -32,13 +32,24 @@ const (
 )
 
 // HighlightLine tokenizes a single line of markdown for rendering.
-func HighlightLine(line []rune, theme Theme, inFrontmatter bool) ([]Token, bool) {
+// logicalLine is the 0-based buffer line number, used to restrict
+// frontmatter detection to the very first line of the document.
+func HighlightLine(line []rune, theme Theme, inFrontmatter bool, logicalLine int) ([]Token, bool) {
 	s := string(line)
 
 	// Frontmatter delimiter
 	trimmed := strings.TrimSpace(s)
-	if trimmed == "---" {
-		return []Token{{Text: s, Style: theme.Frontmatter}}, !inFrontmatter
+	if trimmed == "---" || trimmed == "***" || trimmed == "___" {
+		if inFrontmatter {
+			// Close frontmatter
+			return []Token{{Text: s, Style: theme.Frontmatter}}, false
+		}
+		if trimmed == "---" && logicalLine == 0 {
+			// Open frontmatter (only at the very start of the document)
+			return []Token{{Text: s, Style: theme.Frontmatter}}, true
+		}
+		// Horizontal rule
+		return []Token{{Text: s, Style: theme.HR}}, false
 	}
 	if inFrontmatter {
 		return []Token{{Text: s, Style: theme.Frontmatter}}, true
@@ -68,11 +79,6 @@ func HighlightLine(line []rune, theme Theme, inFrontmatter bool) ([]Token, bool)
 	// Blockquote
 	if len(trimmed) > 0 && trimmed[0] == '>' {
 		return []Token{{Text: s, Style: theme.Blockquote}}, false
-	}
-
-	// Horizontal rule
-	if trimmed == "---" || trimmed == "***" || trimmed == "___" {
-		return []Token{{Text: s, Style: theme.HR}}, false
 	}
 
 	// Inline tokenization
