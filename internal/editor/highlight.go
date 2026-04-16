@@ -100,6 +100,11 @@ func HighlightLine(line []rune, theme Theme, state HighlightState, logicalLine i
 		return []Token{{Text: s, Style: theme.Blockquote}}, state
 	}
 
+	// Table row: starts with |
+	if len(trimmed) > 0 && trimmed[0] == '|' {
+		return tokenizeTableRow(line, theme), state
+	}
+
 	// Inline tokenization
 	tokens := tokenizeInline(line, theme)
 	return tokens, state
@@ -248,6 +253,47 @@ func tokenizeInline(line []rune, theme Theme) []Token {
 
 	flushCurrent()
 	return tokens
+}
+
+// tokenizeTableRow splits a table row into pipe (border) and cell tokens.
+// Separator rows (|---|---| etc.) are rendered entirely as border style.
+func tokenizeTableRow(line []rune, theme Theme) []Token {
+	s := string(line)
+	if isTableSeparator(s) {
+		return []Token{{Text: s, Style: theme.TableBorder}}
+	}
+
+	var tokens []Token
+	i := 0
+	n := len(line)
+	for i < n {
+		if line[i] == '|' {
+			tokens = append(tokens, Token{Text: "|", Style: theme.TableBorder})
+			i++
+		} else {
+			// Collect cell content until next | or end
+			start := i
+			for i < n && line[i] != '|' {
+				i++
+			}
+			tokens = append(tokens, Token{Text: string(line[start:i]), Style: theme.Normal})
+		}
+	}
+	return tokens
+}
+
+// isTableSeparator returns true for lines like |---|---|
+func isTableSeparator(s string) bool {
+	trimmed := strings.TrimSpace(s)
+	if len(trimmed) < 3 || trimmed[0] != '|' {
+		return false
+	}
+	for _, r := range trimmed {
+		if r != '|' && r != '-' && r != ':' && r != ' ' {
+			return false
+		}
+	}
+	return true
 }
 
 func detectListMarker(line []rune) int {

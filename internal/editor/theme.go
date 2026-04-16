@@ -45,6 +45,7 @@ type Theme struct {
 	Dimmed      lipgloss.Style
 	CodeBlock   lipgloss.Style // code block content (fenced ```...```)
 	CodeFence   lipgloss.Style // the ``` fence delimiters
+	TableBorder lipgloss.Style // table pipe | and separator row
 	ActiveLine  lipgloss.Style // background for the cursor's line
 }
 
@@ -109,6 +110,7 @@ func buildTheme(c ThemeColors) Theme {
 		Dimmed:      lipgloss.NewStyle().Foreground(c.Dim).Background(bg),
 		CodeBlock:   lipgloss.NewStyle().Foreground(c.InlineCode).Background(midBg),
 		CodeFence:   lipgloss.NewStyle().Foreground(c.Dim).Background(midBg),
+		TableBorder: lipgloss.NewStyle().Foreground(c.Dim).Background(bg),
 		ActiveLine:  lipgloss.NewStyle().Background(chromeBg),
 	}
 }
