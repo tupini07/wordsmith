@@ -1931,17 +1931,24 @@ func (m Model) View() string {
 		leftMargin = (m.width - m.contentWidth) / 2
 	}
 
-	// Determine frontmatter state for visible lines
+	// Determine frontmatter state for visible lines.
+	// Frontmatter can only start with --- on logical line 0.
 	inFM := false
 	if m.scrollOffset > 0 {
-		// Need to check if we're inside frontmatter at the scroll offset
 		for i := 0; i < len(m.wrap.VisualLines) && i < m.scrollOffset; i++ {
 			vl := m.wrap.VisualLines[i]
 			if vl.LogicalCol == 0 {
 				line := m.buffer.Line(vl.LogicalLine)
 				trimmed := strings.TrimSpace(string(line))
 				if trimmed == "---" {
-					inFM = !inFM
+					if inFM {
+						// Close frontmatter
+						inFM = false
+					} else if vl.LogicalLine == 0 {
+						// Open frontmatter (only on the first line)
+						inFM = true
+					}
+					// Otherwise it's an HR — ignore
 				}
 			}
 		}
