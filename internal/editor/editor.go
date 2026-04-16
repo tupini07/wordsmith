@@ -158,6 +158,19 @@ func (m Model) FilePath() string {
 	return m.filePath
 }
 
+// CursorPos returns the current cursor line and column.
+func (m Model) CursorPos() (line, col int) {
+	return m.cursorLine, m.cursorCol
+}
+
+// SetCursorPos moves the cursor to the given line and column, clamping to valid bounds.
+func (m *Model) SetCursorPos(line, col int) {
+	m.cursorLine = line
+	m.cursorCol = col
+	m.clampCursor()
+	m.ensureCursorVisible()
+}
+
 // IsDirty returns true if the buffer has unsaved changes.
 func (m Model) IsDirty() bool {
 	return m.buffer.IsDirty()

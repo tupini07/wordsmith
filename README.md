@@ -99,6 +99,7 @@ All themes set explicit backgrounds on every element to prevent your terminal's 
 | `Ctrl+P` | Open fuzzy file finder (type a new name to create) |
 | `Ctrl+E` | Toggle file tree sidebar |
 | `n` (in file tree) | Create new file in selected directory |
+| `l` (in file tree) | Highlight opened file in file tree |
 | `Ctrl+Left/Right` | Move by word |
 | `Ctrl+Shift+Left/Right` | Select by word |
 | `Home` / `End` | Start / end of line |

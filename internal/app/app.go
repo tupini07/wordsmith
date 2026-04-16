@@ -87,6 +87,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if err := m.editor.LoadFile(m.initFile); err == nil {
 					rel := m.cfg.RelFilePath(m.initFile)
 					m.state.SetLastFile(rel)
+					// Restore cursor position
+					line, col := m.state.GetCursorPos(rel)
+					if line > 0 || col > 0 {
+						m.editor.SetCursorPos(line, col)
+					}
 				}
 			} else if m.cfg.VaultPath != "" {
 				// No file specified — show fuzzy finder
@@ -262,6 +267,13 @@ func (m *Model) openFile(path string) (Model, tea.Cmd) {
 	prevPath := m.editor.FilePath()
 	wasConfig := m.configPath != "" && prevPath == m.configPath
 
+	// Save cursor position for the file we're leaving
+	if prevPath != "" && prevPath != m.configPath {
+		line, col := m.editor.CursorPos()
+		rel := m.cfg.RelFilePath(prevPath)
+		m.state.SetCursorPos(rel, line, col)
+	}
+
 	if err := m.editor.LoadFile(path); err != nil {
 		return *m, nil
 	}
@@ -270,6 +282,12 @@ func (m *Model) openFile(path string) (Model, tea.Cmd) {
 	if path != m.configPath {
 		rel := m.cfg.RelFilePath(path)
 		m.state.SetLastFile(rel)
+
+		// Restore cursor position
+		line, col := m.state.GetCursorPos(rel)
+		if line > 0 || col > 0 {
+			m.editor.SetCursorPos(line, col)
+		}
 	}
 
 	// Switch back to editor mode
@@ -440,6 +458,12 @@ func (m Model) View() string {
 
 // SaveState saves the current session state.
 func (m Model) SaveState() error {
+	// Save current cursor position
+	if fp := m.editor.FilePath(); fp != "" && fp != m.configPath {
+		line, col := m.editor.CursorPos()
+		rel := m.cfg.RelFilePath(fp)
+		m.state.SetCursorPos(rel, line, col)
+	}
 	return m.state.Save()
 }
 

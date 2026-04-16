@@ -7,10 +7,18 @@ import (
 )
 
 const maxRecentFiles = 20
+const maxCursorPositions = 100
+
+// CursorPos stores a cursor position for a file.
+type CursorPos struct {
+	Line int `json:"line"`
+	Col  int `json:"col"`
+}
 
 type State struct {
-	LastFile    string   `json:"last_file"`
-	RecentFiles []string `json:"recent_files"`
+	LastFile        string               `json:"last_file"`
+	RecentFiles     []string             `json:"recent_files"`
+	CursorPositions map[string]CursorPos `json:"cursor_positions,omitempty"`
 }
 
 func statePath() (string, error) {
@@ -91,4 +99,36 @@ func (s *State) SetLastFile(relPath string) {
 	if len(s.RecentFiles) > maxRecentFiles {
 		s.RecentFiles = s.RecentFiles[:maxRecentFiles]
 	}
+}
+
+// SetCursorPos saves the cursor position for a file.
+func (s *State) SetCursorPos(relPath string, line, col int) {
+	if s.CursorPositions == nil {
+		s.CursorPositions = make(map[string]CursorPos)
+	}
+	s.CursorPositions[relPath] = CursorPos{Line: line, Col: col}
+
+	// Evict oldest entries if over limit
+	if len(s.CursorPositions) > maxCursorPositions {
+		// Keep only entries that are in recent files
+		kept := make(map[string]CursorPos)
+		for _, f := range s.RecentFiles {
+			if pos, ok := s.CursorPositions[f]; ok {
+				kept[f] = pos
+			}
+		}
+		s.CursorPositions = kept
+	}
+}
+
+// GetCursorPos returns the saved cursor position for a file, or (0,0) if none.
+func (s *State) GetCursorPos(relPath string) (line, col int) {
+	if s.CursorPositions == nil {
+		return 0, 0
+	}
+	pos, ok := s.CursorPositions[relPath]
+	if !ok {
+		return 0, 0
+	}
+	return pos.Line, pos.Col
 }

@@ -43,6 +43,7 @@ type Model struct {
 	recentFiles []string // recently opened files, most recent first
 	matches     []fuzzy.Match
 	query       string
+	queryCursor int // cursor position within the query string (in runes)
 	cursor      int
 	width       int
 	height      int
@@ -56,14 +57,15 @@ type Model struct {
 }
 
 type finderTheme struct {
-	border   lipgloss.Style
-	normal   lipgloss.Style
-	selected lipgloss.Style
-	matched  lipgloss.Style
-	input    lipgloss.Style
-	dimmed   lipgloss.Style
-	create   lipgloss.Style // style for the "Create" entry
-	bg       lipgloss.Color
+	border      lipgloss.Style
+	normal      lipgloss.Style
+	selected    lipgloss.Style
+	matched     lipgloss.Style
+	input       lipgloss.Style
+	inputCursor lipgloss.Style
+	dimmed      lipgloss.Style
+	create      lipgloss.Style // style for the "Create" entry
+	bg          lipgloss.Color
 }
 
 func defaultFinderTheme() finderTheme {
@@ -88,7 +90,8 @@ func makeFinderTheme(bg, chromeBg, midBg, fg, accent, dim lipgloss.Color) finder
 		normal:   lipgloss.NewStyle().Foreground(fg).Background(chromeBg),
 		selected: lipgloss.NewStyle().Foreground(accent).Background(chromeBg).Bold(true),
 		matched:  lipgloss.NewStyle().Foreground(accent).Background(chromeBg).Underline(true),
-		input:    lipgloss.NewStyle().Foreground(fg).Background(midBg).Padding(0, 1),
+		input:       lipgloss.NewStyle().Foreground(fg).Background(midBg).Padding(0, 1),
+		inputCursor: lipgloss.NewStyle().Foreground(midBg).Background(fg),
 		dimmed:   lipgloss.NewStyle().Foreground(dim).Background(chromeBg),
 		create:   lipgloss.NewStyle().Foreground(accent).Background(chromeBg).Italic(true),
 	}
@@ -123,6 +126,7 @@ func (m *Model) SetSize(width, height int) {
 func (m *Model) Show() tea.Cmd {
 	m.visible = true
 	m.query = ""
+	m.queryCursor = 0
 	m.cursor = 0
 
 	// Load from cache for instant display
@@ -151,6 +155,7 @@ func (m *Model) HandleScanComplete(files []string) {
 func (m *Model) ShowWithQuery(q string) tea.Cmd {
 	cmd := m.Show()
 	m.query = q
+	m.queryCursor = len([]rune(q))
 	m.updateMatches()
 	return cmd
 }
@@ -166,6 +171,7 @@ func (m *Model) ShowRename(absPath string) {
 	} else {
 		m.query = absPath
 	}
+	m.queryCursor = len([]rune(m.query))
 	m.cursor = 0
 	m.matches = nil
 	m.showCreate = false
@@ -182,6 +188,7 @@ func (m *Model) AddFile(relPath string) {
 func (m *Model) Hide() {
 	m.visible = false
 	m.query = ""
+	m.queryCursor = 0
 	m.cursor = 0
 	m.renameMode = false
 	m.renameFrom = ""
@@ -439,8 +446,11 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			return m, nil
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("backspace"))):
-			if len(m.query) > 0 {
-				m.query = m.query[:len(m.query)-1]
+			runes := []rune(m.query)
+			if m.queryCursor > 0 {
+				runes = append(runes[:m.queryCursor-1], runes[m.queryCursor:]...)
+				m.query = string(runes)
+				m.queryCursor--
 				if !m.renameMode {
 					m.cursor = 0
 					m.updateMatches()
@@ -448,15 +458,59 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			return m, nil
 
+		case key.Matches(msg, key.NewBinding(key.WithKeys("delete"))):
+			runes := []rune(m.query)
+			if m.queryCursor < len(runes) {
+				runes = append(runes[:m.queryCursor], runes[m.queryCursor+1:]...)
+				m.query = string(runes)
+				if !m.renameMode {
+					m.cursor = 0
+					m.updateMatches()
+				}
+			}
+			return m, nil
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("left"))):
+			if m.queryCursor > 0 {
+				m.queryCursor--
+			}
+			return m, nil
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("right"))):
+			if m.queryCursor < len([]rune(m.query)) {
+				m.queryCursor++
+			}
+			return m, nil
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("home"))):
+			m.queryCursor = 0
+			return m, nil
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("end"))):
+			m.queryCursor = len([]rune(m.query))
+			return m, nil
+
 		default:
 			if msg.Type == tea.KeyRunes {
-				m.query += string(msg.Runes)
+				runes := []rune(m.query)
+				newRunes := make([]rune, 0, len(runes)+len(msg.Runes))
+				newRunes = append(newRunes, runes[:m.queryCursor]...)
+				newRunes = append(newRunes, msg.Runes...)
+				newRunes = append(newRunes, runes[m.queryCursor:]...)
+				m.query = string(newRunes)
+				m.queryCursor += len(msg.Runes)
 				if !m.renameMode {
 					m.cursor = 0
 					m.updateMatches()
 				}
 			} else if msg.Type == tea.KeySpace {
-				m.query += " "
+				runes := []rune(m.query)
+				newRunes := make([]rune, 0, len(runes)+1)
+				newRunes = append(newRunes, runes[:m.queryCursor]...)
+				newRunes = append(newRunes, ' ')
+				newRunes = append(newRunes, runes[m.queryCursor:]...)
+				m.query = string(newRunes)
+				m.queryCursor++
 				if !m.renameMode {
 					m.cursor = 0
 					m.updateMatches()
@@ -490,12 +544,30 @@ func (m Model) View() string {
 		maxResults = 3
 	}
 
-	// Input line
+	// Input line with visible cursor
 	prompt := "❯ "
 	if m.renameMode {
 		prompt = "Rename to: "
 	}
-	inputLine := m.theme.input.Width(popupWidth - 2).Render(prompt + m.query)
+	qRunes := []rune(m.query)
+	qc := m.queryCursor
+	if qc > len(qRunes) {
+		qc = len(qRunes)
+	}
+
+	inputStyle := m.theme.input.Width(0) // don't constrain inner width
+	var queryRendered string
+	if qc < len(qRunes) {
+		before := string(qRunes[:qc])
+		cursorCh := string(qRunes[qc : qc+1])
+		after := string(qRunes[qc+1:])
+		queryRendered = before + m.theme.inputCursor.Render(cursorCh) + after
+	} else {
+		queryRendered = m.query + m.theme.inputCursor.Render(" ")
+	}
+
+	inputContent := prompt + queryRendered
+	inputLine := inputStyle.Width(popupWidth - 2).Render(inputContent)
 
 	// Results — skip in rename mode
 	var resultLines []string
