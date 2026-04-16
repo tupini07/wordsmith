@@ -775,20 +775,21 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd) {
 			if m.hasSelection {
 				m.deleteSelection()
 			}
-			lines := strings.Split(text, "\n")
-			for i, line := range lines {
-				// Normalize \r\n
-				line = strings.TrimRight(line, "\r")
-				for _, r := range line {
-					m.buffer.InsertChar(m.cursorLine, m.cursorCol, r)
-					m.cursorCol++
-				}
-				if i < len(lines)-1 {
+			m.buffer.BeginUndoGroup()
+			runes := normalizePastedText([]rune(text))
+			for _, r := range runes {
+				if r == '\n' {
 					m.buffer.InsertNewline(m.cursorLine, m.cursorCol)
 					m.cursorLine++
 					m.cursorCol = 0
+				} else if r == '\r' {
+					// skip
+				} else {
+					m.buffer.InsertChar(m.cursorLine, m.cursorCol, r)
+					m.cursorCol++
 				}
 			}
+			m.buffer.EndUndoGroup()
 		}
 		m.clearSelection()
 		m.rewrap()
