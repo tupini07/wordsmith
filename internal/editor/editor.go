@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
+	"github.com/tupini07/wordsmith/internal/clipboard"
 )
 
 // SaveMsg is sent when the file should be saved.
@@ -49,6 +50,7 @@ type Model struct {
 	// Viewport
 	scrollOffset int // visual line offset
 	width        int
+	fullWidth    int // full terminal width (for chrome: title, status, padding)
 	height       int // editor area height (excluding title/status)
 
 	// Mouse: editor area offset within terminal for coordinate translation
@@ -109,7 +111,20 @@ func New(tabWidth, contentWidth int, theme Theme) Model {
 func (m *Model) SetSize(width, height int) {
 	m.width = width
 	m.height = height
+	if m.fullWidth == 0 {
+		m.fullWidth = width
+	}
 	m.rewrap()
+}
+
+// SetFullWidth sets the full terminal width (used for chrome elements like title/status bars).
+func (m *Model) SetFullWidth(w int) {
+	m.fullWidth = w
+}
+
+// ThemeMarginStyle returns the editor's margin style (for background fill).
+func (m Model) ThemeMarginStyle() lipgloss.Style {
+	return m.theme.Margin
 }
 
 // SetTheme hot-swaps the color theme.
@@ -600,6 +615,17 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.updatePreferredCol()
 		return m, nil
 
+	case key.Matches(msg, km.SelectAll):
+		lastLine := m.buffer.LineCount() - 1
+		m.selAnchorLine = 0
+		m.selAnchorCol = 0
+		m.cursorLine = lastLine
+		m.cursorCol = m.buffer.LineLen(lastLine)
+		m.hasSelection = true
+		m.ensureCursorVisible()
+		m.updatePreferredCol()
+		return m, nil
+
 	// Editing
 	case key.Matches(msg, km.Backspace):
 		if m.hasSelection {
@@ -692,22 +718,64 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.ensureCursorVisible()
 		return m, m.scheduleAutosave()
 
-	case key.Matches(msg, km.DeleteLine):
-		if m.buffer.LineCount() > 1 {
-			if m.cursorLine < m.buffer.LineCount()-1 {
-				// Delete line and its trailing newline
-				m.buffer.DeleteRange(m.cursorLine, 0, m.cursorLine+1, 0)
-			} else {
-				// Last line — delete leading newline from previous line
-				prevLen := m.buffer.LineLen(m.cursorLine - 1)
-				m.buffer.DeleteRange(m.cursorLine-1, prevLen, m.cursorLine, m.buffer.LineLen(m.cursorLine))
-				m.cursorLine--
-			}
-			m.cursorCol = 0
+	case key.Matches(msg, km.Copy):
+		if m.hasSelection {
+			clipboard.Write(m.selectedText())
 		} else {
-			// Single line — just clear it
-			m.buffer.DeleteRange(0, 0, 0, m.buffer.LineLen(0))
-			m.cursorCol = 0
+			// No selection — copy the current line
+			line := string(m.buffer.Line(m.cursorLine))
+			clipboard.Write(line)
+		}
+		return m, nil
+
+	case key.Matches(msg, km.Cut):
+		if m.hasSelection {
+			clipboard.Write(m.selectedText())
+			m.deleteSelection()
+		} else {
+			// No selection — cut the current line
+			line := string(m.buffer.Line(m.cursorLine))
+			clipboard.Write(line)
+			if m.buffer.LineCount() > 1 {
+				if m.cursorLine < m.buffer.LineCount()-1 {
+					m.buffer.DeleteRange(m.cursorLine, 0, m.cursorLine+1, 0)
+				} else {
+					prevLen := m.buffer.LineLen(m.cursorLine - 1)
+					m.buffer.DeleteRange(m.cursorLine-1, prevLen, m.cursorLine, m.buffer.LineLen(m.cursorLine))
+					m.cursorLine--
+				}
+				m.cursorCol = 0
+			} else {
+				m.buffer.DeleteRange(0, 0, 0, m.buffer.LineLen(0))
+				m.cursorCol = 0
+			}
+		}
+		m.clearSelection()
+		m.rewrap()
+		m.updatePreferredCol()
+		m.ensureCursorVisible()
+		return m, m.scheduleAutosave()
+
+	case key.Matches(msg, km.Paste):
+		text, err := clipboard.Read()
+		if err == nil && text != "" {
+			if m.hasSelection {
+				m.deleteSelection()
+			}
+			lines := strings.Split(text, "\n")
+			for i, line := range lines {
+				// Normalize \r\n
+				line = strings.TrimRight(line, "\r")
+				for _, r := range line {
+					m.buffer.InsertChar(m.cursorLine, m.cursorCol, r)
+					m.cursorCol++
+				}
+				if i < len(lines)-1 {
+					m.buffer.InsertNewline(m.cursorLine, m.cursorCol)
+					m.cursorLine++
+					m.cursorCol = 0
+				}
+			}
 		}
 		m.clearSelection()
 		m.rewrap()
@@ -1296,6 +1364,7 @@ func (m *Model) wrapWithMarkers(marker string) {
 		text := m.selectedText()
 		sl, sc, _, _ := m.selectionRange()
 
+		m.buffer.BeginUndoGroup()
 		// Toggle: if selection is already wrapped, unwrap it
 		if len(text) >= 2*len(marker) &&
 			text[:len(marker)] == marker && text[len(text)-len(marker):] == marker {
@@ -1311,6 +1380,7 @@ func (m *Model) wrapWithMarkers(marker string) {
 			m.cursorLine = endLine
 			m.cursorCol = endCol
 		}
+		m.buffer.EndUndoGroup()
 		m.clearSelection()
 		m.rewrap()
 		m.updatePreferredCol()
@@ -1336,10 +1406,24 @@ func (m *Model) wrapWithMarkers(marker string) {
 		}
 	}
 
+	// Check if cursor is right before closing markers with a word char to the left.
+	// This handles the case where the user is at the end of formatted text
+	// (e.g., "**some text here|**") and wants to exit the markers.
+	if m.cursorCol > 0 && m.cursorCol+markerLen <= lineLen && isWordChar(line[m.cursorCol-1]) {
+		after := string(line[m.cursorCol : m.cursorCol+markerLen])
+		if after == marker {
+			m.cursorCol += markerLen
+			m.rewrap()
+			m.updatePreferredCol()
+			return
+		}
+	}
+
 	// Try to find the word under/before cursor.
-	// WordAt won't find it if cursor is at end (past last char), so check col-1 too.
+	// WordAt won't find it if cursor is at end (past last char), so check col-1
+	// — but only if col-1 is actually a word character (avoid finding distant words).
 	start, end := m.buffer.WordAt(m.cursorLine, m.cursorCol)
-	if start == end && m.cursorCol > 0 {
+	if start == end && m.cursorCol > 0 && m.cursorCol-1 < lineLen && isWordChar(line[m.cursorCol-1]) {
 		start, end = m.buffer.WordAt(m.cursorLine, m.cursorCol-1)
 	}
 
@@ -1365,8 +1449,10 @@ func (m *Model) wrapWithMarkers(marker string) {
 				m.cursorCol = mEnd
 			} else {
 				// Cursor inside word: remove the markers (unwrap)
+				m.buffer.BeginUndoGroup()
 				m.buffer.DeleteRange(m.cursorLine, end, m.cursorLine, mEnd)
 				m.buffer.DeleteRange(m.cursorLine, mStart, m.cursorLine, start)
+				m.buffer.EndUndoGroup()
 				// Adjust cursor for removed prefix markers
 				m.cursorCol = m.cursorCol - markerLen
 				if m.cursorCol < mStart {
@@ -1375,14 +1461,17 @@ func (m *Model) wrapWithMarkers(marker string) {
 			}
 		} else {
 			// Wrap the word and move cursor past closing markers
+			m.buffer.BeginUndoGroup()
 			word := string(line[start:end])
 			m.buffer.DeleteRange(m.cursorLine, start, m.cursorLine, end)
 			wrapped := marker + word + marker
 			_, endCol := m.buffer.InsertText(m.cursorLine, start, wrapped)
+			m.buffer.EndUndoGroup()
 			m.cursorCol = endCol
 		}
 	} else {
 		// No word — insert empty markers and place cursor between them
+		m.buffer.BeginUndoGroup()
 		markerRunes := []rune(marker)
 		for _, r := range markerRunes {
 			m.buffer.InsertChar(m.cursorLine, m.cursorCol, r)
@@ -1391,6 +1480,7 @@ func (m *Model) wrapWithMarkers(marker string) {
 		for _, r := range markerRunes {
 			m.buffer.InsertChar(m.cursorLine, m.cursorCol, r)
 		}
+		m.buffer.EndUndoGroup()
 	}
 	m.rewrap()
 	m.updatePreferredCol()
@@ -1855,13 +1945,22 @@ func (m Model) View() string {
 	return strings.Join(lines, "\n")
 }
 
+// chromeWidth returns the width for chrome elements (title, status, padding).
+func (m Model) chromeWidth() int {
+	if m.fullWidth > 0 {
+		return m.fullWidth
+	}
+	return m.width
+}
+
 // PaddingLine returns an empty line styled with the editor background.
 func (m Model) PaddingLine() string {
-	return m.theme.Margin.Render(strings.Repeat(" ", m.width))
+	return m.theme.Margin.Render(strings.Repeat(" ", m.chromeWidth()))
 }
 
 // TitleView renders the title bar.
 func (m Model) TitleView() string {
+	cw := m.chromeWidth()
 	title := m.filePath
 	if title == "" {
 		title = "[No File]"
@@ -1879,17 +1978,18 @@ func (m Model) TitleView() string {
 		title = strings.Join(parts, " / ")
 	}
 
-	if len(title) > m.width-4 {
-		title = "…" + title[len(title)-m.width+5:]
+	if len(title) > cw-4 {
+		title = "…" + title[len(title)-cw+5:]
 	}
 
 	return m.theme.TitleBar.
-		Width(m.width).
+		Width(cw).
 		Render(title)
 }
 
 // StatusView renders the status bar.
 func (m Model) StatusView() string {
+	cw := m.chromeWidth()
 	wc := fmt.Sprintf("Words: %d", m.WordCount())
 	status := m.SaveStatus()
 
@@ -1901,7 +2001,7 @@ func (m Model) StatusView() string {
 	// Right side: cursor position
 	right := fmt.Sprintf("Ln %d, Col %d", m.cursorLine+1, m.cursorCol+1)
 
-	gap := m.width - runewidth.StringWidth(left) - runewidth.StringWidth(right) - 2
+	gap := cw - runewidth.StringWidth(left) - runewidth.StringWidth(right) - 2
 	if gap < 1 {
 		gap = 1
 	}
@@ -1909,6 +2009,6 @@ func (m Model) StatusView() string {
 	bar := left + strings.Repeat(" ", gap) + right
 
 	return m.theme.StatusBar.
-		Width(m.width).
+		Width(cw).
 		Render(bar)
 }

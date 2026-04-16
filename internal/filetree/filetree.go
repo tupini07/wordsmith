@@ -70,7 +70,7 @@ func makeTreeTheme(bg, chromeBg, fg, accent, dirColor lipgloss.Color) treeTheme 
 		selected: lipgloss.NewStyle().Foreground(accent).Background(bg).Bold(true),
 		dir:      lipgloss.NewStyle().Foreground(dirColor).Background(bg).Bold(true),
 		file:     lipgloss.NewStyle().Foreground(fg).Background(bg),
-		border:   lipgloss.NewStyle().Border(lipgloss.NormalBorder(), false, true, false, false).BorderForeground(chromeBg).Background(bg),
+		border:   lipgloss.NewStyle().Border(lipgloss.NormalBorder(), false, true, false, false).BorderForeground(chromeBg).BorderBackground(bg).Background(bg),
 	}
 }
 
@@ -96,7 +96,9 @@ func (m *Model) SetSize(width, height int) {
 // Show makes the tree visible and scans files.
 func (m *Model) Show() {
 	m.visible = true
+	expanded := m.expandedPaths()
 	m.scan()
+	m.restoreExpanded(expanded)
 	m.flatten()
 }
 
@@ -125,6 +127,59 @@ func (m Model) Width() int {
 		return 0
 	}
 	return m.width
+}
+
+// RevealFile expands parent directories and moves the cursor to the given file path.
+func (m *Model) RevealFile(filePath string) {
+	if m.root == nil || filePath == "" {
+		return
+	}
+
+	// Build the chain of directories from vault root to the file
+	rel, err := filepath.Rel(m.vaultPath, filePath)
+	if err != nil {
+		return
+	}
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	if len(parts) == 0 {
+		return
+	}
+
+	// Walk the tree, expanding each directory along the path
+	current := m.root
+	for i := 0; i < len(parts)-1; i++ {
+		found := false
+		if len(current.Children) == 0 {
+			m.scanDir(current)
+		}
+		for _, child := range current.Children {
+			if child.IsDir && child.Name == parts[i] {
+				child.Expanded = true
+				if len(child.Children) == 0 {
+					m.scanDir(child)
+				}
+				current = child
+				found = true
+				break
+			}
+		}
+		if !found {
+			return
+		}
+	}
+
+	// Re-flatten with the newly expanded dirs
+	m.flatten()
+
+	// Find the target node in the flat list and move cursor there
+	targetName := parts[len(parts)-1]
+	for i, node := range m.flat {
+		if node.Name == targetName && node.Path == filePath {
+			m.cursor = i
+			m.ensureVisible()
+			return
+		}
+	}
 }
 
 func (m *Model) scan() {
@@ -180,6 +235,41 @@ func (m *Model) flatten() {
 	m.flat = nil
 	if m.root != nil {
 		m.flattenNode(m.root)
+	}
+}
+
+// expandedPaths returns the set of paths for currently expanded directories.
+func (m *Model) expandedPaths() map[string]bool {
+	paths := make(map[string]bool)
+	if m.root != nil {
+		m.collectExpanded(m.root, paths)
+	}
+	return paths
+}
+
+func (m *Model) collectExpanded(node *Node, paths map[string]bool) {
+	if node.IsDir && node.Expanded {
+		paths[node.Path] = true
+		for _, child := range node.Children {
+			m.collectExpanded(child, paths)
+		}
+	}
+}
+
+// restoreExpanded re-expands directories that were previously expanded.
+func (m *Model) restoreExpanded(paths map[string]bool) {
+	if m.root != nil {
+		m.applyExpanded(m.root, paths)
+	}
+}
+
+func (m *Model) applyExpanded(node *Node, paths map[string]bool) {
+	if node.IsDir && paths[node.Path] {
+		node.Expanded = true
+		m.scanDir(node)
+		for _, child := range node.Children {
+			m.applyExpanded(child, paths)
+		}
 	}
 }
 

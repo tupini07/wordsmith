@@ -25,6 +25,12 @@ type FileCreateMsg struct {
 	Path string
 }
 
+// FileRenameMsg is sent when the user confirms a file rename.
+type FileRenameMsg struct {
+	OldPath string
+	NewPath string
+}
+
 // FileScanCompleteMsg is sent when background file scanning completes.
 type FileScanCompleteMsg struct {
 	Files []string
@@ -44,6 +50,8 @@ type Model struct {
 	scanning    bool
 	showCreate  bool   // whether to show a "Create" entry
 	createPath  string // normalized relative path for file creation
+	renameMode  bool   // when true, finder acts as a rename prompt
+	renameFrom  string // absolute path of the file being renamed
 	theme       finderTheme
 }
 
@@ -147,6 +155,22 @@ func (m *Model) ShowWithQuery(q string) tea.Cmd {
 	return cmd
 }
 
+// ShowRename opens the finder as a rename prompt with the current path pre-filled.
+func (m *Model) ShowRename(absPath string) {
+	m.visible = true
+	m.renameMode = true
+	m.renameFrom = absPath
+	// Pre-fill with vault-relative path
+	if rel, err := filepath.Rel(m.vaultPath, absPath); err == nil {
+		m.query = strings.TrimSuffix(rel, ".md")
+	} else {
+		m.query = absPath
+	}
+	m.cursor = 0
+	m.matches = nil
+	m.showCreate = false
+}
+
 // AddFile adds a newly created file to the cached list.
 func (m *Model) AddFile(relPath string) {
 	m.files = append(m.files, relPath)
@@ -159,6 +183,8 @@ func (m *Model) Hide() {
 	m.visible = false
 	m.query = ""
 	m.cursor = 0
+	m.renameMode = false
+	m.renameFrom = ""
 }
 
 // IsVisible returns whether the finder is visible.
@@ -364,6 +390,19 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			return m, nil
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
+			// Rename mode: confirm rename
+			if m.renameMode {
+				newPath := normalizeCreatePath(m.query)
+				if newPath != "" {
+					absNew := filepath.Join(m.vaultPath, newPath)
+					oldPath := m.renameFrom
+					m.Hide()
+					return m, func() tea.Msg {
+						return FileRenameMsg{OldPath: oldPath, NewPath: absNew}
+					}
+				}
+				return m, nil
+			}
 			if m.showCreate && m.cursor == 0 {
 				absPath := filepath.Join(m.vaultPath, m.createPath)
 				m.Hide()
@@ -385,35 +424,43 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			return m, nil
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("up"))):
-			if m.cursor > 0 {
+			if !m.renameMode && m.cursor > 0 {
 				m.cursor--
 			}
 			return m, nil
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("down"))):
-			total := m.totalItems()
-			if m.cursor < total-1 {
-				m.cursor++
+			if !m.renameMode {
+				total := m.totalItems()
+				if m.cursor < total-1 {
+					m.cursor++
+				}
 			}
 			return m, nil
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("backspace"))):
 			if len(m.query) > 0 {
 				m.query = m.query[:len(m.query)-1]
-				m.cursor = 0
-				m.updateMatches()
+				if !m.renameMode {
+					m.cursor = 0
+					m.updateMatches()
+				}
 			}
 			return m, nil
 
 		default:
 			if msg.Type == tea.KeyRunes {
 				m.query += string(msg.Runes)
-				m.cursor = 0
-				m.updateMatches()
+				if !m.renameMode {
+					m.cursor = 0
+					m.updateMatches()
+				}
 			} else if msg.Type == tea.KeySpace {
 				m.query += " "
-				m.cursor = 0
-				m.updateMatches()
+				if !m.renameMode {
+					m.cursor = 0
+					m.updateMatches()
+				}
 			}
 			return m, nil
 		}
@@ -445,60 +492,69 @@ func (m Model) View() string {
 
 	// Input line
 	prompt := "❯ "
+	if m.renameMode {
+		prompt = "Rename to: "
+	}
 	inputLine := m.theme.input.Width(popupWidth - 2).Render(prompt + m.query)
 
-	// Results — virtual list includes optional create entry at index 0, then matches
+	// Results — skip in rename mode
 	var resultLines []string
-	total := m.totalItems()
-	start := 0
-	if m.cursor >= maxResults {
-		start = m.cursor - maxResults + 1
-	}
-	end := start + maxResults
-	if end > total {
-		end = total
-	}
 
-	for i := start; i < end; i++ {
-		if m.showCreate && i == 0 {
-			// Create entry
-			display := "✚ Create: " + m.createPath
-			if len(display) > popupWidth-4 {
-				display = display[:popupWidth-5] + "…"
-			}
-			if i == m.cursor {
-				resultLines = append(resultLines, m.theme.selected.Render("▸ "+display))
-			} else {
-				resultLines = append(resultLines, m.theme.create.Render("  "+display))
-			}
-		} else {
-			matchIdx := i
-			if m.showCreate {
-				matchIdx--
-			}
-			if matchIdx >= 0 && matchIdx < len(m.matches) {
-				match := m.matches[matchIdx]
-				display := match.Str
+	if m.renameMode {
+		// Show a hint
+		resultLines = append(resultLines, m.theme.dimmed.Render("  Enter to confirm, Esc to cancel"))
+	} else {
+		total := m.totalItems()
+		start := 0
+		if m.cursor >= maxResults {
+			start = m.cursor - maxResults + 1
+		}
+		end := start + maxResults
+		if end > total {
+			end = total
+		}
 
-				// Truncate long paths
+		for i := start; i < end; i++ {
+			if m.showCreate && i == 0 {
+				// Create entry
+				display := "✚ Create: " + m.createPath
 				if len(display) > popupWidth-4 {
-					display = "…" + display[len(display)-popupWidth+5:]
+					display = display[:popupWidth-5] + "…"
 				}
-
 				if i == m.cursor {
 					resultLines = append(resultLines, m.theme.selected.Render("▸ "+display))
 				} else {
-					resultLines = append(resultLines, m.theme.normal.Render("  "+display))
+					resultLines = append(resultLines, m.theme.create.Render("  "+display))
+				}
+			} else {
+				matchIdx := i
+				if m.showCreate {
+					matchIdx--
+				}
+				if matchIdx >= 0 && matchIdx < len(m.matches) {
+					match := m.matches[matchIdx]
+					display := match.Str
+
+					// Truncate long paths
+					if len(display) > popupWidth-4 {
+						display = "…" + display[len(display)-popupWidth+5:]
+					}
+
+					if i == m.cursor {
+						resultLines = append(resultLines, m.theme.selected.Render("▸ "+display))
+					} else {
+						resultLines = append(resultLines, m.theme.normal.Render("  "+display))
+					}
 				}
 			}
 		}
-	}
 
-	if total == 0 {
-		if m.scanning {
-			resultLines = append(resultLines, m.theme.dimmed.Render("  Scanning files…"))
-		} else {
-			resultLines = append(resultLines, m.theme.dimmed.Render("  No matches"))
+		if total == 0 {
+			if m.scanning {
+				resultLines = append(resultLines, m.theme.dimmed.Render("  Scanning files…"))
+			} else {
+				resultLines = append(resultLines, m.theme.dimmed.Render("  No matches"))
+			}
 		}
 	}
 

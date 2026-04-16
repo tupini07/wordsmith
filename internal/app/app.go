@@ -13,6 +13,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // AppMode represents the current application mode.
@@ -105,6 +106,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case finder.FileCreateMsg:
 		return m.createAndOpenFile(msg.Path)
 
+	case finder.FileRenameMsg:
+		return m.renameFile(msg.OldPath, msg.NewPath)
+
 	case filetree.CreateInDirMsg:
 		// Open finder pre-filled with the directory path
 		m.mode = ModeFuzzyFinder
@@ -176,6 +180,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.configPath = cfgPath
 			return m.openFile(cfgPath)
 
+		case key.Matches(msg, key.NewBinding(key.WithKeys("f3"))):
+			// Rename current file
+			if fp := m.editor.FilePath(); fp != "" {
+				if m.editor.IsDirty() {
+					m.editor.SaveFile()
+				}
+				m.mode = ModeFuzzyFinder
+				m.finder.ShowRename(fp)
+				m.editor.SetFocused(false)
+				m.updateSizes()
+			}
+			return m, nil
+
 		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
 			if m.mode != ModeEditor {
 				m.mode = ModeEditor
@@ -185,6 +202,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.updateSizes()
 				return m, nil
 			}
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+c"))):
+			// Route to editor for copy (don't quit)
+			if m.mode == ModeEditor {
+				m.editor, _ = m.editor.Update(msg)
+			}
+			return m, nil
 		}
 	case tea.MouseMsg:
 		// When in file tree mode, clicks in the editor area switch to editor
@@ -218,6 +242,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ModeEditor:
 		m.editor, cmd = m.editor.Update(msg)
 	case ModeFileTree:
+		// Intercept 'l' to reveal current file in tree
+		if kmsg, ok := msg.(tea.KeyMsg); ok && kmsg.String() == "l" {
+			if fp := m.editor.FilePath(); fp != "" {
+				m.tree.RevealFile(fp)
+			}
+			return m, nil
+		}
 		m.tree, cmd = m.tree.Update(msg)
 	case ModeFuzzyFinder:
 		m.finder, cmd = m.finder.Update(msg)
@@ -290,6 +321,63 @@ func (m *Model) createAndOpenFile(absPath string) (tea.Model, tea.Cmd) {
 	return m.openFile(absPath)
 }
 
+func (m *Model) renameFile(oldPath, newPath string) (tea.Model, tea.Cmd) {
+	// Validate new path stays inside the vault
+	newPath = filepath.Clean(newPath)
+	vaultAbs := filepath.Clean(m.cfg.VaultPath)
+	if !strings.HasPrefix(newPath, vaultAbs+string(filepath.Separator)) {
+		m.editor.SetStatus("Cannot rename file outside vault")
+		m.mode = ModeEditor
+		m.editor.SetFocused(true)
+		return m, nil
+	}
+
+	// Don't rename to same path
+	if oldPath == newPath {
+		m.mode = ModeEditor
+		m.editor.SetFocused(true)
+		return m, nil
+	}
+
+	// Create parent directories for the new path
+	dir := filepath.Dir(newPath)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		m.editor.SetStatus("Error: " + err.Error())
+		m.mode = ModeEditor
+		m.editor.SetFocused(true)
+		return m, nil
+	}
+
+	// Check the destination doesn't already exist
+	if _, err := os.Stat(newPath); err == nil {
+		m.editor.SetStatus("File already exists")
+		m.mode = ModeEditor
+		m.editor.SetFocused(true)
+		return m, nil
+	}
+
+	// Perform the rename
+	if err := os.Rename(oldPath, newPath); err != nil {
+		m.editor.SetStatus("Rename error: " + err.Error())
+		m.mode = ModeEditor
+		m.editor.SetFocused(true)
+		return m, nil
+	}
+
+	// Update the editor to point at the new path
+	m.editor.SetFilePath(newPath)
+	m.editor.SetStatus("Renamed to " + m.cfg.RelFilePath(newPath))
+
+	// Update recent files state
+	rel := m.cfg.RelFilePath(newPath)
+	m.state.SetLastFile(rel)
+
+	m.mode = ModeEditor
+	m.editor.SetFocused(true)
+	m.updateSizes()
+	return m, nil
+}
+
 func (m *Model) updateSizes() {
 	// Reserve 1 line for title, 1 for status, 2 for padding
 	editorHeight := m.height - 4
@@ -309,6 +397,7 @@ func (m *Model) updateSizes() {
 	}
 
 	m.editor.SetSize(editorWidth, editorHeight)
+	m.editor.SetFullWidth(m.width)
 	m.editor.SetEditorOffset(treeW, 2) // Y=2 for title bar + padding row
 	m.finder.SetSize(m.width, m.height)
 }
@@ -330,7 +419,7 @@ func (m Model) View() string {
 	if m.tree.IsVisible() {
 		treeView := m.tree.View()
 		// Merge tree and editor side by side (editor height excludes padding)
-		editorView = mergeSideBySide(treeView, editorView, m.height-4)
+		editorView = mergeSideBySide(treeView, editorView, m.height-4, m.width, m.editor.ThemeMarginStyle())
 	}
 
 	// Status bar
@@ -389,8 +478,8 @@ func (m *Model) reloadConfig() {
 	m.editor.SetStatus("Config reloaded")
 }
 
-// mergeSideBySide renders two views side by side.
-func mergeSideBySide(left, right string, height int) string {
+// mergeSideBySide renders two views side by side, filling to fullWidth.
+func mergeSideBySide(left, right string, height, fullWidth int, fillStyle lipgloss.Style) string {
 	leftLines := splitLines(left, height)
 	rightLines := splitLines(right, height)
 
@@ -407,7 +496,13 @@ func mergeSideBySide(left, right string, height int) string {
 		if i < len(rightLines) {
 			r = rightLines[i]
 		}
-		result += l + r
+		line := l + r
+		// Fill any remaining space to the right edge
+		lineWidth := lipgloss.Width(line)
+		if lineWidth < fullWidth {
+			line += fillStyle.Render(strings.Repeat(" ", fullWidth-lineWidth))
+		}
+		result += line
 	}
 	return result
 }

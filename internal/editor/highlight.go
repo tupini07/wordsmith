@@ -58,6 +58,7 @@ type Theme struct {
 	ListMarker  lipgloss.Style
 	Frontmatter lipgloss.Style
 	HR          lipgloss.Style
+	FootnoteRef lipgloss.Style
 	Cursor      lipgloss.Style
 	Selection   lipgloss.Style
 	StatusBar   lipgloss.Style
@@ -106,6 +107,7 @@ func DefaultTheme() Theme {
 		ListMarker:  lipgloss.NewStyle().Foreground(teal).Background(bg),
 		Frontmatter: lipgloss.NewStyle().Foreground(dimText).Background(bg),
 		HR:          lipgloss.NewStyle().Foreground(dimText).Background(bg),
+		FootnoteRef: lipgloss.NewStyle().Foreground(teal).Background(bg),
 		Cursor:      lipgloss.NewStyle().Foreground(bg).Background(cream),
 		Selection:   lipgloss.NewStyle().Background(lipgloss.Color("#4A4550")),
 		StatusBar:   lipgloss.NewStyle().Background(chromeBg).Foreground(cream).Padding(0, 1),
@@ -156,6 +158,7 @@ func NordTheme() Theme {
 		ListMarker:  lipgloss.NewStyle().Foreground(frost1).Background(bg),
 		Frontmatter: lipgloss.NewStyle().Foreground(dimText).Background(bg),
 		HR:          lipgloss.NewStyle().Foreground(dimText).Background(bg),
+		FootnoteRef: lipgloss.NewStyle().Foreground(frost1).Background(bg),
 		Cursor:      lipgloss.NewStyle().Foreground(bg).Background(snow),
 		Selection:   lipgloss.NewStyle().Background(midBg),
 		StatusBar:   lipgloss.NewStyle().Background(chromeBg).Foreground(snow).Padding(0, 1),
@@ -206,6 +209,7 @@ func DraculaTheme() Theme {
 		ListMarker:  lipgloss.NewStyle().Foreground(pink).Background(bg),
 		Frontmatter: lipgloss.NewStyle().Foreground(dimText).Background(bg),
 		HR:          lipgloss.NewStyle().Foreground(dimText).Background(bg),
+		FootnoteRef: lipgloss.NewStyle().Foreground(cyan).Background(bg),
 		Cursor:      lipgloss.NewStyle().Foreground(bg).Background(fg),
 		Selection:   lipgloss.NewStyle().Background(midBg),
 		StatusBar:   lipgloss.NewStyle().Background(chromeBg).Foreground(fg).Padding(0, 1),
@@ -257,6 +261,7 @@ func GruvboxTheme() Theme {
 		ListMarker:  lipgloss.NewStyle().Foreground(aqua).Background(bg),
 		Frontmatter: lipgloss.NewStyle().Foreground(dimText).Background(bg),
 		HR:          lipgloss.NewStyle().Foreground(dimText).Background(bg),
+		FootnoteRef: lipgloss.NewStyle().Foreground(blue).Background(bg),
 		Cursor:      lipgloss.NewStyle().Foreground(bg).Background(fg),
 		Selection:   lipgloss.NewStyle().Background(midBg),
 		StatusBar:   lipgloss.NewStyle().Background(chromeBg).Foreground(fg).Padding(0, 1),
@@ -413,6 +418,27 @@ func tokenizeInline(line []rune, theme Theme) []Token {
 				tokens = append(tokens, Token{
 					Text:  string(line[i : end+1]),
 					Style: theme.Italic,
+				})
+				i = end + 1
+				continue
+			}
+		}
+
+		// Footnote reference: [^id]
+		if line[i] == '[' && i+2 < n && line[i+1] == '^' {
+			// Find closing ]
+			end := -1
+			for j := i + 2; j < n; j++ {
+				if line[j] == ']' {
+					end = j
+					break
+				}
+			}
+			if end > i+2 {
+				flushCurrent()
+				tokens = append(tokens, Token{
+					Text:  string(line[i : end+1]),
+					Style: theme.FootnoteRef,
 				})
 				i = end + 1
 				continue

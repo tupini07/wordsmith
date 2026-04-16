@@ -4,10 +4,11 @@ import "unicode"
 
 // Buffer is a rune-aware line-based text buffer.
 type Buffer struct {
-	lines   [][]rune
-	dirty   bool
+	lines     [][]rune
+	dirty     bool
 	undoStack []undoEntry
 	redoStack []undoEntry
+	undoGroup int // when > 0, new entries get this group ID
 }
 
 type undoKind int
@@ -22,15 +23,16 @@ const (
 )
 
 type undoEntry struct {
-	kind   undoKind
-	line   int
-	col    int
-	char   rune     // for single-char ops
-	chars  []rune   // all chars in a coalesced insert
-	text   [][]rune // for multi-line ops
+	kind    undoKind
+	line    int
+	col     int
+	char    rune     // for single-char ops
+	chars   []rune   // all chars in a coalesced insert
+	text    [][]rune // for multi-line ops
 	endLine int
 	endCol  int
 	coalesce bool   // can this be merged with previous entry?
+	group    int    // entries with the same non-zero group are undone together
 }
 
 func NewBuffer() *Buffer {
@@ -470,12 +472,49 @@ func (b *Buffer) WordCount() int {
 // Undo/Redo
 
 func (b *Buffer) pushUndo(e undoEntry) {
+	if b.undoGroup > 0 {
+		e.group = b.undoGroup
+	}
 	b.undoStack = append(b.undoStack, e)
 	b.redoStack = nil // clear redo on new edit
 }
 
+// BeginUndoGroup starts a group so multiple edits are undone as one.
+func (b *Buffer) BeginUndoGroup() {
+	b.undoGroup++
+}
+
+// EndUndoGroup ends the current undo group.
+func (b *Buffer) EndUndoGroup() {
+	if b.undoGroup > 0 {
+		b.undoGroup--
+	}
+}
+
 // Undo reverses the last edit and returns the cursor position to restore.
 func (b *Buffer) Undo() (line, col int, ok bool) {
+	if len(b.undoStack) == 0 {
+		return 0, 0, false
+	}
+
+	top := b.undoStack[len(b.undoStack)-1]
+	line, col, ok = b.undoOne()
+	if !ok {
+		return
+	}
+
+	// If this entry belongs to a group, undo all entries in the same group
+	if top.group > 0 {
+		for len(b.undoStack) > 0 && b.undoStack[len(b.undoStack)-1].group == top.group {
+			line, col, _ = b.undoOne()
+		}
+	}
+
+	return line, col, true
+}
+
+// undoOne reverses a single undo entry.
+func (b *Buffer) undoOne() (line, col int, ok bool) {
 	if len(b.undoStack) == 0 {
 		return 0, 0, false
 	}
@@ -587,6 +626,28 @@ func (b *Buffer) Undo() (line, col int, ok bool) {
 
 // Redo re-applies the last undone edit.
 func (b *Buffer) Redo() (line, col int, ok bool) {
+	if len(b.redoStack) == 0 {
+		return 0, 0, false
+	}
+
+	top := b.redoStack[len(b.redoStack)-1]
+	line, col, ok = b.redoOne()
+	if !ok {
+		return
+	}
+
+	// If this entry belongs to a group, redo all entries in the same group
+	if top.group > 0 {
+		for len(b.redoStack) > 0 && b.redoStack[len(b.redoStack)-1].group == top.group {
+			line, col, _ = b.redoOne()
+		}
+	}
+
+	return line, col, true
+}
+
+// redoOne re-applies a single undo entry.
+func (b *Buffer) redoOne() (line, col int, ok bool) {
 	if len(b.redoStack) == 0 {
 		return 0, 0, false
 	}

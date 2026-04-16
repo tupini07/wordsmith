@@ -34,14 +34,21 @@ type KeyMap struct {
 	CtrlShiftLeft  key.Binding
 	CtrlShiftRight key.Binding
 
+	// Select all
+	SelectAll key.Binding
+
 	// Editing
 	Backspace      key.Binding
 	Delete         key.Binding
 	DeleteWordBack key.Binding
-	DeleteLine     key.Binding
 	Enter          key.Binding
 	Tab            key.Binding
 	ShiftTab       key.Binding
+
+	// Clipboard
+	Copy  key.Binding
+	Cut   key.Binding
+	Paste key.Binding
 
 	// Markdown formatting
 	Bold     key.Binding
@@ -91,13 +98,18 @@ func DefaultKeyMap() KeyMap {
 		CtrlShiftLeft:  key.NewBinding(key.WithKeys("ctrl+shift+left")),
 		CtrlShiftRight: key.NewBinding(key.WithKeys("ctrl+shift+right")),
 
+		SelectAll: key.NewBinding(key.WithKeys("ctrl+a")),
+
 		Backspace:      key.NewBinding(key.WithKeys("backspace")),
 		Delete:         key.NewBinding(key.WithKeys("delete")),
 		DeleteWordBack: key.NewBinding(key.WithKeys("ctrl+h", "ctrl+w")),
-		DeleteLine:     key.NewBinding(key.WithKeys("ctrl+x")),
 		Enter:     key.NewBinding(key.WithKeys("enter")),
 		Tab:       key.NewBinding(key.WithKeys("tab")),
 		ShiftTab:  key.NewBinding(key.WithKeys("shift+tab")),
+
+		Copy:  key.NewBinding(key.WithKeys("ctrl+c")),
+		Cut:   key.NewBinding(key.WithKeys("ctrl+x")),
+		Paste: key.NewBinding(key.WithKeys("ctrl+v")),
 
 		Bold:   key.NewBinding(key.WithKeys("alt+b")),
 		Italic: key.NewBinding(key.WithKeys("alt+i")),

@@ -83,7 +83,10 @@ All themes set explicit backgrounds on every element to prevent your terminal's 
 | `Ctrl+D` | Footnote — insert, or jump between ref ↔ definition |
 | `Ctrl+Backspace` / `Ctrl+W` | Delete previous word |
 | `Alt+D` | Delete next word |
-| `Ctrl+X` | Delete current line |
+| `Ctrl+A` | Select all |
+| `Ctrl+C` | Copy selection (or current line if no selection) |
+| `Ctrl+X` | Cut selection (or current line if no selection) |
+| `Ctrl+V` | Paste from system clipboard |
 | `Tab` | Indent (inserts spaces) |
 | `Shift+Tab` | Outdent |
 | `Ctrl+Z` | Undo |
@@ -119,6 +122,7 @@ All themes set explicit backgrounds on every element to prevent your terminal's 
 | `Ctrl+S` | Save (or overwrite if file changed externally) |
 | `Ctrl+R` | Reload file from disk |
 | `F2` | Open config file for editing (hot-reloads on close) |
+| `F3` | Rename current file |
 | `Ctrl+Q` | Quit |
 
 ## Session State
