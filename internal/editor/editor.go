@@ -825,10 +825,13 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd) {
 		// Regular character input
 		if msg.Type == tea.KeyRunes {
 			m.deleteSelection()
+
+			runes := msg.Runes
 			if msg.Paste {
+				runes = normalizePastedText(runes)
 				m.buffer.BeginUndoGroup()
 			}
-			for _, r := range msg.Runes {
+			for _, r := range runes {
 				if r == '\n' {
 					m.buffer.InsertNewline(m.cursorLine, m.cursorCol)
 					m.cursorLine++
@@ -1822,6 +1825,84 @@ func FileWatchCmd() tea.Cmd {
 	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
 		return FileWatchTickMsg{}
 	})
+}
+
+// normalizePastedText collapses hard-wrapped lines into paragraphs.
+// Single newlines between non-blank lines become spaces (unwrapping
+// hard-wrapped text), while blank lines (paragraph breaks) and lines
+// starting with markdown block syntax are preserved.
+func normalizePastedText(runes []rune) []rune {
+	text := string(runes)
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.TrimRight(text, "\r")
+	lines := strings.Split(text, "\n")
+
+	if len(lines) <= 1 {
+		return []rune(text)
+	}
+
+	var buf strings.Builder
+	for i, line := range lines {
+		buf.WriteString(line)
+		if i == len(lines)-1 {
+			break
+		}
+
+		next := ""
+		if i+1 < len(lines) {
+			next = lines[i+1]
+		}
+
+		// Keep the newline when:
+		// - current line is blank (paragraph break)
+		// - next line is blank (paragraph break)
+		// - next line starts with markdown block-level syntax
+		if line == "" || next == "" || isBlockStart(next) {
+			buf.WriteByte('\n')
+		} else {
+			// Collapse the hard wrap: join with a space unless the line
+			// already ends with one.
+			if len(line) > 0 && line[len(line)-1] != ' ' {
+				buf.WriteByte(' ')
+			}
+		}
+	}
+	return []rune(buf.String())
+}
+
+// isBlockStart returns true if the line starts a new markdown block element.
+func isBlockStart(line string) bool {
+	trimmed := strings.TrimLeft(line, " \t")
+	if trimmed == "" {
+		return false
+	}
+	switch trimmed[0] {
+	case '#': // heading
+		return true
+	case '-', '*', '+': // list item or hr
+		return true
+	case '>': // blockquote
+		return true
+	case '|': // table row
+		return true
+	case '`': // possible code fence
+		return strings.HasPrefix(trimmed, "```")
+	case '~': // possible code fence
+		return strings.HasPrefix(trimmed, "~~~")
+	}
+	// Ordered list: digits followed by . or )
+	if len(trimmed) >= 2 && trimmed[0] >= '0' && trimmed[0] <= '9' {
+		for j := 1; j < len(trimmed); j++ {
+			if trimmed[j] >= '0' && trimmed[j] <= '9' {
+				continue
+			}
+			if trimmed[j] == '.' || trimmed[j] == ')' {
+				return true
+			}
+			break
+		}
+	}
+	return false
 }
 
 // View implements tea.Model.
