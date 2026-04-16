@@ -15,9 +15,17 @@ show_line_numbers: false
 
 # Color theme (default: "gruvbox")
 # Available themes:
-#   - "gruvbox"   Warm retro palette inspired by Gruvbox
-#   - "nord"      Cool blue-gray palette inspired by Nord
-#   - "dracula"   Dark purple-accented palette inspired by Dracula
+#   Dark:
+#     - "gruvbox"          Warm retro palette inspired by Gruvbox
+#     - "nord"             Cool blue-gray palette inspired by Nord
+#     - "dracula"          Dark purple-accented palette inspired by Dracula
+#     - "catppuccin-mocha" Pastel dark palette inspired by Catppuccin Mocha
+#     - "palenight"        Muted purple palette inspired by Material Palenight
+#     - "solarized-dark"   Warm-cool palette inspired by Solarized Dark
+#     - "tokyo-night"      Dark blue palette inspired by Tokyo Night
+#   Light:
+#     - "catppuccin-latte" Pastel light palette inspired by Catppuccin Latte
+#     - "solarized-light"  Warm-cool light palette inspired by Solarized Light
 theme: "gruvbox"
 
 # Highlight the active (cursor) line with a subtle background (default: false)

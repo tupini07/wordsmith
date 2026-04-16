@@ -172,9 +172,145 @@ func GruvboxTheme() Theme {
 	})
 }
 
+// CatppuccinMochaTheme returns a pastel dark palette inspired by Catppuccin Mocha.
+func CatppuccinMochaTheme() Theme {
+	return buildTheme(ThemeColors{
+		Bg:          "#1E1E2E",
+		ChromeBg:    "#313244",
+		MidBg:       "#45475A",
+		Fg:          "#CDD6F4",
+		FgItalic:    "#BAC2DE",
+		Bold:        "#FAB387",
+		Heading1:    "#F38BA8",
+		Heading2:    "#CBA6F7",
+		Link:        "#89B4FA",
+		InlineCode:  "#A6E3A1",
+		ListMarker:  "#F5C2E7",
+		FootnoteRef: "#94E2D5",
+		Accent:      "#CBA6F7",
+		Dim:         "#6C7086",
+		Dir:         "#94E2D5",
+	})
+}
+
+// CatppuccinLatteTheme returns a pastel light palette inspired by Catppuccin Latte.
+func CatppuccinLatteTheme() Theme {
+	return buildTheme(ThemeColors{
+		Bg:          "#EFF1F5",
+		ChromeBg:    "#CCD0DA",
+		MidBg:       "#BCC0CC",
+		Fg:          "#4C4F69",
+		FgItalic:    "#5C5F77",
+		Bold:        "#FE640B",
+		Heading1:    "#D20F39",
+		Heading2:    "#8839EF",
+		Link:        "#1E66F5",
+		InlineCode:  "#40A02B",
+		ListMarker:  "#EA76CB",
+		FootnoteRef: "#179299",
+		Accent:      "#8839EF",
+		Dim:         "#9CA0B0",
+		Dir:         "#179299",
+	})
+}
+
+// PalenightTheme returns a muted purple palette inspired by Material Palenight.
+func PalenightTheme() Theme {
+	return buildTheme(ThemeColors{
+		Bg:          "#292D3E",
+		ChromeBg:    "#32374D",
+		MidBg:       "#434758",
+		Fg:          "#A6ACCD",
+		FgItalic:    "#959DCB",
+		Bold:        "#F78C6C",
+		Heading1:    "#F07178",
+		Heading2:    "#C792EA",
+		Link:        "#82AAFF",
+		InlineCode:  "#C3E88D",
+		ListMarker:  "#89DDFF",
+		FootnoteRef: "#89DDFF",
+		Accent:      "#C792EA",
+		Dim:         "#676E95",
+		Dir:         "#82AAFF",
+	})
+}
+
+// SolarizedDarkTheme returns a warm-cool palette inspired by Solarized Dark.
+func SolarizedDarkTheme() Theme {
+	return buildTheme(ThemeColors{
+		Bg:          "#002B36",
+		ChromeBg:    "#073642",
+		MidBg:       "#0A4050",
+		Fg:          "#839496",
+		FgItalic:    "#93A1A1",
+		Bold:        "#B58900",
+		Heading1:    "#CB4B16",
+		Heading2:    "#268BD2",
+		Link:        "#2AA198",
+		InlineCode:  "#859900",
+		ListMarker:  "#D33682",
+		FootnoteRef: "#6C71C4",
+		Accent:      "#268BD2",
+		Dim:         "#586E75",
+		Dir:         "#2AA198",
+	})
+}
+
+// SolarizedLightTheme returns a warm-cool light palette inspired by Solarized Light.
+func SolarizedLightTheme() Theme {
+	return buildTheme(ThemeColors{
+		Bg:          "#FDF6E3",
+		ChromeBg:    "#EEE8D5",
+		MidBg:       "#E6E0CB",
+		Fg:          "#657B83",
+		FgItalic:    "#586E75",
+		Bold:        "#B58900",
+		Heading1:    "#CB4B16",
+		Heading2:    "#268BD2",
+		Link:        "#2AA198",
+		InlineCode:  "#859900",
+		ListMarker:  "#D33682",
+		FootnoteRef: "#6C71C4",
+		Accent:      "#268BD2",
+		Dim:         "#93A1A1",
+		Dir:         "#2AA198",
+	})
+}
+
+// TokyoNightTheme returns a dark blue palette inspired by Tokyo Night.
+func TokyoNightTheme() Theme {
+	return buildTheme(ThemeColors{
+		Bg:          "#1A1B26",
+		ChromeBg:    "#24283B",
+		MidBg:       "#33467C",
+		Fg:          "#A9B1D6",
+		FgItalic:    "#9AA5CE",
+		Bold:        "#FF9E64",
+		Heading1:    "#F7768E",
+		Heading2:    "#BB9AF7",
+		Link:        "#7AA2F7",
+		InlineCode:  "#9ECE6A",
+		ListMarker:  "#7DCFFF",
+		FootnoteRef: "#73DACA",
+		Accent:      "#BB9AF7",
+		Dim:         "#565F89",
+		Dir:         "#73DACA",
+	})
+}
+
 // ThemeNames returns the list of available theme names in display order.
 func ThemeNames() []string {
-	return []string{"gruvbox", "nord", "dracula"}
+	return append(DarkThemeNames(), LightThemeNames()...)
+}
+
+// DarkThemeNames returns dark theme names in display order.
+func DarkThemeNames() []string {
+	return []string{"gruvbox", "nord", "dracula", "catppuccin-mocha", "palenight", "solarized-dark", "tokyo-night"}
+}
+
+// LightThemeNames returns light theme names in display order.
+func LightThemeNames() []string {
+	return []string{"catppuccin-latte", "solarized-light"}
 }
 
 // ThemeByName returns a theme by its config name. Falls back to GruvboxTheme.
@@ -184,6 +320,18 @@ func ThemeByName(name string) Theme {
 		return NordTheme()
 	case "dracula":
 		return DraculaTheme()
+	case "catppuccin-mocha":
+		return CatppuccinMochaTheme()
+	case "catppuccin-latte":
+		return CatppuccinLatteTheme()
+	case "palenight":
+		return PalenightTheme()
+	case "solarized-dark":
+		return SolarizedDarkTheme()
+	case "solarized-light":
+		return SolarizedLightTheme()
+	case "tokyo-night":
+		return TokyoNightTheme()
 	default:
 		return GruvboxTheme()
 	}

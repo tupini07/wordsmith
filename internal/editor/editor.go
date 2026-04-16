@@ -825,9 +825,23 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd) {
 		// Regular character input
 		if msg.Type == tea.KeyRunes {
 			m.deleteSelection()
+			if msg.Paste {
+				m.buffer.BeginUndoGroup()
+			}
 			for _, r := range msg.Runes {
-				m.buffer.InsertChar(m.cursorLine, m.cursorCol, r)
-				m.cursorCol++
+				if r == '\n' {
+					m.buffer.InsertNewline(m.cursorLine, m.cursorCol)
+					m.cursorLine++
+					m.cursorCol = 0
+				} else if r == '\r' {
+					// skip carriage returns
+				} else {
+					m.buffer.InsertChar(m.cursorLine, m.cursorCol, r)
+					m.cursorCol++
+				}
+			}
+			if msg.Paste {
+				m.buffer.EndUndoGroup()
 			}
 			m.clearSelection()
 			m.rewrap()

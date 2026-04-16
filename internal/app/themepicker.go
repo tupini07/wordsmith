@@ -9,9 +9,14 @@ import (
 	"github.com/tupini07/wordsmith/internal/editor"
 )
 
+type pickerEntry struct {
+	name     string
+	isHeader bool
+}
+
 // themePicker is a small popup that lists available themes.
 type themePicker struct {
-	items   []string
+	entries []pickerEntry
 	cursor  int
 	visible bool
 
@@ -21,9 +26,17 @@ type themePicker struct {
 }
 
 func newThemePicker() themePicker {
-	return themePicker{
-		items: editor.ThemeNames(),
+	var entries []pickerEntry
+	entries = append(entries, pickerEntry{name: "Dark", isHeader: true})
+	for _, n := range editor.DarkThemeNames() {
+		entries = append(entries, pickerEntry{name: n})
 	}
+	entries = append(entries, pickerEntry{name: "", isHeader: true}) // blank separator
+	entries = append(entries, pickerEntry{name: "Light", isHeader: true})
+	for _, n := range editor.LightThemeNames() {
+		entries = append(entries, pickerEntry{name: n})
+	}
+	return themePicker{entries: entries}
 }
 
 // Show opens the picker and snapshots the current theme for revert.
@@ -31,10 +44,10 @@ func (tp *themePicker) Show(currentTheme string) {
 	tp.visible = true
 	tp.originalTheme = currentTheme
 	// Place cursor on the currently active theme
-	tp.cursor = 0
+	tp.cursor = tp.firstSelectable()
 	lower := strings.ToLower(currentTheme)
-	for i, name := range tp.items {
-		if name == lower {
+	for i, e := range tp.entries {
+		if !e.isHeader && e.name == lower {
 			tp.cursor = i
 			break
 		}
@@ -49,10 +62,19 @@ func (tp *themePicker) IsVisible() bool {
 	return tp.visible
 }
 
+func (tp *themePicker) firstSelectable() int {
+	for i, e := range tp.entries {
+		if !e.isHeader {
+			return i
+		}
+	}
+	return 0
+}
+
 // SelectedTheme returns the theme name the cursor is on.
 func (tp *themePicker) SelectedTheme() string {
-	if tp.cursor >= 0 && tp.cursor < len(tp.items) {
-		return tp.items[tp.cursor]
+	if tp.cursor >= 0 && tp.cursor < len(tp.entries) && !tp.entries[tp.cursor].isHeader {
+		return tp.entries[tp.cursor].name
 	}
 	return "gruvbox"
 }
@@ -68,20 +90,21 @@ type themePickerResult struct {
 }
 
 // HandleKey processes a key event and returns a result if the picker should close.
-// Returns nil if the key was consumed but the picker stays open.
-// Returns a result with confirmed=true on Enter, confirmed=false on Esc/F4.
-// The string return is the theme to preview (non-empty if cursor moved).
 func (tp *themePicker) HandleKey(msg tea.KeyMsg) (result *themePickerResult, preview string) {
 	switch {
 	case key.Matches(msg, key.NewBinding(key.WithKeys("up", "k"))):
-		if tp.cursor > 0 {
-			tp.cursor--
-			return nil, tp.SelectedTheme()
+		for i := tp.cursor - 1; i >= 0; i-- {
+			if !tp.entries[i].isHeader {
+				tp.cursor = i
+				return nil, tp.SelectedTheme()
+			}
 		}
 	case key.Matches(msg, key.NewBinding(key.WithKeys("down", "j"))):
-		if tp.cursor < len(tp.items)-1 {
-			tp.cursor++
-			return nil, tp.SelectedTheme()
+		for i := tp.cursor + 1; i < len(tp.entries); i++ {
+			if !tp.entries[i].isHeader {
+				tp.cursor = i
+				return nil, tp.SelectedTheme()
+			}
 		}
 	case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 		return &themePickerResult{confirmed: true, theme: tp.SelectedTheme()}, ""
@@ -107,6 +130,9 @@ func (tp *themePicker) View(theme editor.Theme, totalWidth, totalHeight int) str
 	titleStyle := lipgloss.NewStyle().
 		Foreground(fg).Background(bg).
 		Bold(true).Padding(0, 1)
+	headerStyle := lipgloss.NewStyle().
+		Foreground(dim).Background(bg).
+		Bold(true).Padding(0, 1)
 	normalStyle := lipgloss.NewStyle().
 		Foreground(fg).Background(bg).
 		Padding(0, 1)
@@ -120,10 +146,18 @@ func (tp *themePicker) View(theme editor.Theme, totalWidth, totalHeight int) str
 	var contentLines []string
 	contentLines = append(contentLines, titleStyle.Render("Theme"))
 	contentLines = append(contentLines, "")
-	for i, name := range tp.items {
-		display := "  " + name
+	for i, e := range tp.entries {
+		if e.isHeader {
+			if e.name == "" {
+				contentLines = append(contentLines, "")
+			} else {
+				contentLines = append(contentLines, headerStyle.Render("  "+e.name))
+			}
+			continue
+		}
+		display := "    " + e.name
 		if i == tp.cursor {
-			display = "▸ " + name
+			display = "  ▸ " + e.name
 			contentLines = append(contentLines, selectedStyle.Render(display))
 		} else {
 			contentLines = append(contentLines, normalStyle.Render(display))
@@ -134,7 +168,7 @@ func (tp *themePicker) View(theme editor.Theme, totalWidth, totalHeight int) str
 
 	content := strings.Join(contentLines, "\n")
 
-	popupWidth := 44
+	popupWidth := 50
 	border := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(accent).

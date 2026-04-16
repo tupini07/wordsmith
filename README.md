@@ -60,14 +60,26 @@ See [config.example.yaml](config.example.yaml) for all options.
 
 ## Themes
 
-Wordsmith ships with 4 built-in themes. Set `theme` in your config file:
+Wordsmith ships with 9 built-in themes. Set `theme` in your config file, or press **F4** for a live-preview picker.
+
+**Dark themes:**
 
 | Theme | Description |
 |-------|-------------|
-| `default` | Warm, cozy palette — cream text, coral headings, teal links |
+| `gruvbox` | Warm retro palette inspired by [Gruvbox](https://github.com/morhetz/gruvbox) *(default)* |
 | `nord` | Cool blue-gray palette inspired by [Nord](https://www.nordtheme.com/) |
 | `dracula` | Dark purple-accented palette inspired by [Dracula](https://draculatheme.com/) |
-| `gruvbox` | Warm retro palette inspired by [Gruvbox](https://github.com/morhetz/gruvbox) |
+| `catppuccin-mocha` | Pastel dark palette inspired by [Catppuccin](https://catppuccin.com/) |
+| `palenight` | Muted purple palette inspired by [Material Palenight](https://material-theme.com/) |
+| `solarized-dark` | Warm-cool palette inspired by [Solarized](https://ethanschoonover.com/solarized/) |
+| `tokyo-night` | Dark blue palette inspired by [Tokyo Night](https://github.com/enkia/tokyo-night-vscode-theme) |
+
+**Light themes:**
+
+| Theme | Description |
+|-------|-------------|
+| `catppuccin-latte` | Pastel light palette inspired by [Catppuccin Latte](https://catppuccin.com/) |
+| `solarized-light` | Warm-cool light palette inspired by [Solarized](https://ethanschoonover.com/solarized/) |
 
 All themes set explicit backgrounds on every element to prevent your terminal's native background from bleeding through.
 
