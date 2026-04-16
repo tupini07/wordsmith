@@ -53,7 +53,7 @@ vault_path: "/path/to/folder/with/markdown/notes"
 autosave_delay: "2s"
 tab_width: 4
 content_width: 80
-theme: "default"
+theme: "gruvbox"
 ```
 
 See [config.example.yaml](config.example.yaml) for all options.
@@ -124,6 +124,7 @@ All themes set explicit backgrounds on every element to prevent your terminal's 
 | `Ctrl+R` | Reload file from disk |
 | `F2` | Open config file for editing (hot-reloads on close) |
 | `F3` | Rename current file |
+| `F4` | Theme picker (live preview, Enter to confirm, Esc to cancel) |
 | `Ctrl+Q` | Quit |
 
 ## Session State

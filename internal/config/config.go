@@ -29,7 +29,7 @@ func Default() Config {
 		TabWidth:       4,
 		ContentWidth:   80,
 		ShowLineNumbers: false,
-		Theme:          "default",
+		Theme:          "gruvbox",
 	}
 }
 

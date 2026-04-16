@@ -13,13 +13,12 @@ content_width: 80
 # Show line numbers (default: false)
 show_line_numbers: false
 
-# Color theme (default: "default")
+# Color theme (default: "gruvbox")
 # Available themes:
-#   - "default"   Warm, cozy palette (cream, coral, teal, orange)
+#   - "gruvbox"   Warm retro palette inspired by Gruvbox
 #   - "nord"      Cool blue-gray palette inspired by Nord
 #   - "dracula"   Dark purple-accented palette inspired by Dracula
-#   - "gruvbox"   Warm retro palette inspired by Gruvbox
-theme: "default"
+theme: "gruvbox"
 
 # Highlight the active (cursor) line with a subtle background (default: false)
 typewriter_highlight: false

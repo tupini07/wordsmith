@@ -5,7 +5,7 @@ import (
 )
 
 func TestHighlightHeading(t *testing.T) {
-	theme := DefaultTheme()
+	theme := GruvboxTheme()
 	line := []rune("# Hello World")
 	tokens, inFM := HighlightLine(line, theme, false)
 
@@ -21,7 +21,7 @@ func TestHighlightHeading(t *testing.T) {
 }
 
 func TestHighlightFrontmatter(t *testing.T) {
-	theme := DefaultTheme()
+	theme := GruvboxTheme()
 
 	// Opening delimiter
 	_, inFM := HighlightLine([]rune("---"), theme, false)
@@ -46,7 +46,7 @@ func TestHighlightFrontmatter(t *testing.T) {
 }
 
 func TestHighlightBlockquote(t *testing.T) {
-	theme := DefaultTheme()
+	theme := GruvboxTheme()
 	tokens, _ := HighlightLine([]rune("> quoted text"), theme, false)
 	if len(tokens) != 1 {
 		t.Fatalf("expected 1 token for blockquote, got %d", len(tokens))
@@ -54,7 +54,7 @@ func TestHighlightBlockquote(t *testing.T) {
 }
 
 func TestHighlightInlineBold(t *testing.T) {
-	theme := DefaultTheme()
+	theme := GruvboxTheme()
 	tokens, _ := HighlightLine([]rune("hello **bold** world"), theme, false)
 
 	// Should have: "hello ", "**bold**", " world"
@@ -74,7 +74,7 @@ func TestHighlightInlineBold(t *testing.T) {
 }
 
 func TestHighlightInlineItalic(t *testing.T) {
-	theme := DefaultTheme()
+	theme := GruvboxTheme()
 	tokens, _ := HighlightLine([]rune("hello *italic* world"), theme, false)
 
 	foundItalic := false
@@ -89,7 +89,7 @@ func TestHighlightInlineItalic(t *testing.T) {
 }
 
 func TestHighlightInlineCode(t *testing.T) {
-	theme := DefaultTheme()
+	theme := GruvboxTheme()
 	tokens, _ := HighlightLine([]rune("use `fmt.Println` here"), theme, false)
 
 	foundCode := false
@@ -104,7 +104,7 @@ func TestHighlightInlineCode(t *testing.T) {
 }
 
 func TestHighlightLink(t *testing.T) {
-	theme := DefaultTheme()
+	theme := GruvboxTheme()
 	tokens, _ := HighlightLine([]rune("click [here](https://example.com) now"), theme, false)
 
 	foundLink := false
@@ -126,7 +126,7 @@ func TestHighlightLink(t *testing.T) {
 }
 
 func TestHighlightListMarker(t *testing.T) {
-	theme := DefaultTheme()
+	theme := GruvboxTheme()
 	tokens, _ := HighlightLine([]rune("- list item"), theme, false)
 
 	if len(tokens) < 2 {
@@ -138,7 +138,7 @@ func TestHighlightListMarker(t *testing.T) {
 }
 
 func TestHighlightNumberedList(t *testing.T) {
-	theme := DefaultTheme()
+	theme := GruvboxTheme()
 	tokens, _ := HighlightLine([]rune("1. first item"), theme, false)
 
 	if len(tokens) < 2 {

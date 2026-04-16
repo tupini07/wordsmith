@@ -109,27 +109,6 @@ func buildTheme(c ThemeColors) Theme {
 	}
 }
 
-// DefaultTheme returns a warm, cozy color palette.
-func DefaultTheme() Theme {
-	return buildTheme(ThemeColors{
-		Bg:          "#1E1C1F",
-		ChromeBg:    "#2D2A2E",
-		MidBg:       "#3E3B40",
-		Fg:          "#F5E6D3",
-		FgItalic:    "#E8DCC8",
-		Bold:        "#E8A87C",
-		Heading1:    "#E27D60",
-		Heading2:    "#E27D60",
-		Link:        "#41B3A3",
-		InlineCode:  "#C38D9E",
-		ListMarker:  "#41B3A3",
-		FootnoteRef: "#41B3A3",
-		Accent:      "#E8A87C",
-		Dim:         "#8A8488",
-		Dir:         "#41B3A3",
-	})
-}
-
 // NordTheme returns a cool blue-gray palette inspired by Nord.
 func NordTheme() Theme {
 	return buildTheme(ThemeColors{
@@ -193,16 +172,19 @@ func GruvboxTheme() Theme {
 	})
 }
 
-// ThemeByName returns a theme by its config name. Falls back to DefaultTheme.
+// ThemeNames returns the list of available theme names in display order.
+func ThemeNames() []string {
+	return []string{"gruvbox", "nord", "dracula"}
+}
+
+// ThemeByName returns a theme by its config name. Falls back to GruvboxTheme.
 func ThemeByName(name string) Theme {
 	switch strings.ToLower(name) {
 	case "nord":
 		return NordTheme()
 	case "dracula":
 		return DraculaTheme()
-	case "gruvbox":
-		return GruvboxTheme()
 	default:
-		return DefaultTheme()
+		return GruvboxTheme()
 	}
 }

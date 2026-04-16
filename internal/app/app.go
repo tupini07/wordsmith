@@ -23,23 +23,26 @@ const (
 	ModeEditor AppMode = iota
 	ModeFileTree
 	ModeFuzzyFinder
+	ModeThemePicker
 )
 
 const fileTreeWidth = 30
 
 // Model is the top-level application model.
 type Model struct {
-	mode       AppMode
-	editor     editor.Model
-	tree       filetree.Model
-	finder     finder.Model
-	cfg        config.Config
-	state      state.State
-	width      int
-	height     int
-	initFile   string
-	loaded     bool
-	configPath string // cached config file path for detecting config edits
+	mode        AppMode
+	editor      editor.Model
+	tree        filetree.Model
+	finder      finder.Model
+	picker      themePicker
+	cfg         config.Config
+	state       state.State
+	width       int
+	height      int
+	initFile    string
+	loaded      bool
+	configPath  string // cached config file path for detecting config edits
+	activeTheme string // runtime theme name (may differ from config)
 }
 
 // New creates a new app model.
@@ -57,13 +60,15 @@ func New(cfg config.Config, st state.State, filePath string) Model {
 	fnd.SetThemeColors(theme.Bg, theme.ChromeBg, theme.ChromeBg, theme.Fg, theme.AccentColor, theme.DimColor)
 
 	return Model{
-		mode:     ModeEditor,
-		editor:   ed,
-		tree:     tree,
-		finder:   fnd,
-		cfg:      cfg,
-		state:    st,
-		initFile: filePath,
+		mode:        ModeEditor,
+		editor:      ed,
+		tree:        tree,
+		finder:      fnd,
+		picker:      newThemePicker(),
+		cfg:         cfg,
+		state:       st,
+		initFile:    filePath,
+		activeTheme: cfg.Theme,
 	}
 }
 
@@ -135,6 +140,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.openFile(msg.Path)
 
 	case tea.KeyMsg:
+		// Theme picker gets first-priority key handling
+		if m.mode == ModeThemePicker {
+			result, preview := m.picker.HandleKey(msg)
+			if preview != "" {
+				m.applyTheme(preview)
+			}
+			if result != nil {
+				m.picker.Hide()
+				m.mode = ModeEditor
+				m.editor.SetFocused(true)
+				m.applyTheme(result.theme)
+				if result.confirmed {
+					m.editor.SetStatus("Theme: " + result.theme)
+				}
+			}
+			return m, nil
+		}
+
 		// Global keybindings that work in any mode
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+q"))):
@@ -198,7 +221,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
+		case key.Matches(msg, key.NewBinding(key.WithKeys("f4"))):
+			// Toggle theme picker
+			if m.mode == ModeThemePicker {
+				// Close and revert (same as Esc)
+				m.applyTheme(m.picker.OriginalTheme())
+				m.picker.Hide()
+				m.mode = ModeEditor
+				m.editor.SetFocused(true)
+			} else {
+				m.mode = ModeThemePicker
+				m.picker.Show(m.activeTheme)
+				m.editor.SetFocused(false)
+			}
+			return m, nil
+
 		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
+			if m.mode == ModeThemePicker {
+				m.applyTheme(m.picker.OriginalTheme())
+				m.picker.Hide()
+				m.mode = ModeEditor
+				m.editor.SetFocused(true)
+				return m, nil
+			}
 			if m.mode != ModeEditor {
 				m.mode = ModeEditor
 				m.tree.Hide()
@@ -453,6 +498,12 @@ func (m Model) View() string {
 		}
 	}
 
+	// Theme picker overlay (renders its own full-screen view)
+	if m.picker.IsVisible() {
+		theme := editor.ThemeByName(m.activeTheme)
+		return m.picker.View(theme, m.width, m.height)
+	}
+
 	return composed
 }
 
@@ -467,6 +518,15 @@ func (m Model) SaveState() error {
 	return m.state.Save()
 }
 
+// applyTheme applies a theme by name to all components.
+func (m *Model) applyTheme(name string) {
+	theme := editor.ThemeByName(name)
+	m.activeTheme = name
+	m.editor.SetTheme(theme)
+	m.tree.SetThemeColors(theme.Bg, theme.ChromeBg, theme.Fg, theme.AccentColor, theme.DirColor)
+	m.finder.SetThemeColors(theme.Bg, theme.ChromeBg, theme.ChromeBg, theme.Fg, theme.AccentColor, theme.DimColor)
+}
+
 // reloadConfig re-reads the config file and hot-reloads settings that can
 // change at runtime (theme, tab width, content width, typewriter highlight,
 // autosave delay). vault_path changes require a restart.
@@ -477,12 +537,9 @@ func (m *Model) reloadConfig() {
 		return
 	}
 
-	// Apply hot-reloadable settings
-	if newCfg.Theme != m.cfg.Theme {
-		theme := editor.ThemeByName(newCfg.Theme)
-		m.editor.SetTheme(theme)
-		m.tree.SetThemeColors(theme.Bg, theme.ChromeBg, theme.Fg, theme.AccentColor, theme.DirColor)
-		m.finder.SetThemeColors(theme.Bg, theme.ChromeBg, theme.ChromeBg, theme.Fg, theme.AccentColor, theme.DimColor)
+	// Theme from config always wins on reload (user explicitly saved it)
+	if newCfg.Theme != m.activeTheme {
+		m.applyTheme(newCfg.Theme)
 	}
 	if newCfg.TabWidth != m.cfg.TabWidth {
 		m.editor.SetTabWidth(newCfg.TabWidth)
