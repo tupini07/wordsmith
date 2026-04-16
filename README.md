@@ -98,7 +98,7 @@ All themes set explicit backgrounds on every element to prevent your terminal's 
 | `Ctrl+A` | Select all |
 | `Ctrl+C` | Copy selection (or current line if no selection) |
 | `Ctrl+X` | Cut selection (or current line if no selection) |
-| `Ctrl+V` | Paste from system clipboard |
+| `Ctrl+V` / `Alt+V` | Paste from system clipboard (use Alt+V if your terminal intercepts Ctrl+V) |
 | `Tab` | Indent (inserts spaces) |
 | `Shift+Tab` | Outdent |
 | `Ctrl+Z` | Undo |

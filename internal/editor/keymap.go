@@ -109,7 +109,7 @@ func DefaultKeyMap() KeyMap {
 
 		Copy:  key.NewBinding(key.WithKeys("ctrl+c")),
 		Cut:   key.NewBinding(key.WithKeys("ctrl+x")),
-		Paste: key.NewBinding(key.WithKeys("ctrl+v")),
+		Paste: key.NewBinding(key.WithKeys("ctrl+v", "alt+v")),
 
 		Bold:   key.NewBinding(key.WithKeys("alt+b")),
 		Italic: key.NewBinding(key.WithKeys("alt+i")),
