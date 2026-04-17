@@ -570,12 +570,26 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.moveCursorDown()
 		return m, nil
 	case key.Matches(msg, km.Left):
-		m.clearSelection()
-		m.moveCursorLeft()
+		if m.hasSelection {
+			sl, sc, _, _ := m.selectionRange()
+			m.cursorLine, m.cursorCol = sl, sc
+			m.clearSelection()
+		} else {
+			m.moveCursorLeft()
+		}
+		m.updatePreferredCol()
+		m.ensureCursorVisible()
 		return m, nil
 	case key.Matches(msg, km.Right):
-		m.clearSelection()
-		m.moveCursorRight()
+		if m.hasSelection {
+			_, _, el, ec := m.selectionRange()
+			m.cursorLine, m.cursorCol = el, ec
+			m.clearSelection()
+		} else {
+			m.moveCursorRight()
+		}
+		m.updatePreferredCol()
+		m.ensureCursorVisible()
 		return m, nil
 	case key.Matches(msg, km.Home):
 		m.clearSelection()
