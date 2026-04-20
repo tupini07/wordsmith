@@ -84,9 +84,18 @@ func TestHighlightCodeFence(t *testing.T) {
 
 func TestHighlightBlockquote(t *testing.T) {
 	theme := GruvboxTheme()
-	tokens, _ := HighlightLine([]rune("> quoted text"), theme, noState, 5)
+	tokens, state := HighlightLine([]rune("> quoted text"), theme, noState, 5)
 	if len(tokens) != 1 {
 		t.Fatalf("expected 1 token for blockquote, got %d", len(tokens))
+	}
+	if !state.InBlockquote {
+		t.Fatal("expected InBlockquote to be true after blockquote line")
+	}
+
+	// Continuation sub-line should also be styled as blockquote
+	contTokens, _ := HighlightLine([]rune("continuation of quote"), theme, state, 5)
+	if len(contTokens) != 1 {
+		t.Fatalf("expected 1 token for blockquote continuation, got %d", len(contTokens))
 	}
 }
 
@@ -122,6 +131,42 @@ func TestHighlightInlineItalic(t *testing.T) {
 	if !foundItalic {
 		t.Error("expected an italic token")
 	}
+}
+
+func TestHighlightRawURL(t *testing.T) {
+	theme := GruvboxTheme()
+
+	// URL in the middle of text
+	tokens, _ := HighlightLine([]rune("visit https://example.com/path for info"), theme, noState, 5)
+	foundURL := false
+	for _, tok := range tokens {
+		if tok.Text == "https://example.com/path" {
+			foundURL = true
+		}
+	}
+	if !foundURL {
+		t.Errorf("expected URL token, got tokens: %v", tokTexts(tokens))
+	}
+
+	// URL at end of sentence (trailing period stripped)
+	tokens2, _ := HighlightLine([]rune("see http://example.com."), theme, noState, 5)
+	foundURL2 := false
+	for _, tok := range tokens2 {
+		if tok.Text == "http://example.com" {
+			foundURL2 = true
+		}
+	}
+	if !foundURL2 {
+		t.Errorf("expected URL without trailing period, got tokens: %v", tokTexts(tokens2))
+	}
+}
+
+func tokTexts(tokens []Token) []string {
+	var out []string
+	for _, t := range tokens {
+		out = append(out, t.Text)
+	}
+	return out
 }
 
 func TestHighlightInlineCode(t *testing.T) {

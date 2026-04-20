@@ -35,6 +35,7 @@ const (
 type HighlightState struct {
 	InFrontmatter bool
 	InCodeBlock   bool
+	InBlockquote  bool
 }
 
 // HighlightLine tokenizes a single line of markdown for rendering.
@@ -97,6 +98,13 @@ func HighlightLine(line []rune, theme Theme, state HighlightState, logicalLine i
 
 	// Blockquote
 	if len(trimmed) > 0 && trimmed[0] == '>' {
+		bqState := state
+		bqState.InBlockquote = true
+		return []Token{{Text: s, Style: theme.Blockquote}}, bqState
+	}
+
+	// Blockquote continuation (soft-wrapped sub-lines)
+	if state.InBlockquote {
 		return []Token{{Text: s, Style: theme.Blockquote}}, state
 	}
 
@@ -247,6 +255,20 @@ func tokenizeInline(line []rune, theme Theme) []Token {
 			}
 		}
 
+		// Raw URL: http:// or https://
+		if line[i] == 'h' && matchesAt(line, i, "http://") || matchesAt(line, i, "https://") {
+			urlEnd := findURLEnd(line, i)
+			if urlEnd > i {
+				flushCurrent()
+				tokens = append(tokens, Token{
+					Text:  string(line[i:urlEnd]),
+					Style: theme.LinkURL,
+				})
+				i = urlEnd
+				continue
+			}
+		}
+
 		current = append(current, line[i])
 		i++
 	}
@@ -383,6 +405,50 @@ func parseLinkAt(line []rune, start int) int {
 	}
 	if depth != 0 {
 		return -1
+	}
+	return i
+}
+
+// matchesAt checks if substr appears at position pos in line.
+func matchesAt(line []rune, pos int, substr string) bool {
+	sr := []rune(substr)
+	if pos+len(sr) > len(line) {
+		return false
+	}
+	for i, r := range sr {
+		if line[pos+i] != r {
+			return false
+		}
+	}
+	return true
+}
+
+// findURLEnd returns the index one past the end of a URL starting at pos.
+// URLs end at whitespace or common trailing punctuation that's unlikely part of the URL.
+func findURLEnd(line []rune, pos int) int {
+	i := pos
+	n := len(line)
+	for i < n {
+		r := line[i]
+		if r == ' ' || r == '\t' || r == '\n' || r == '\r' ||
+			r == '<' || r == '>' || r == '"' || r == '\'' {
+			break
+		}
+		i++
+	}
+	// Strip common trailing punctuation that's likely sentence-ending, not part of the URL
+	for i > pos {
+		last := line[i-1]
+		if last == '.' || last == ',' || last == ';' || last == ':' ||
+			last == '!' || last == '?' || last == ')' || last == ']' {
+			i--
+		} else {
+			break
+		}
+	}
+	// Must have some content after the scheme
+	if i <= pos+7 { // len("http://") == 7
+		return pos
 	}
 	return i
 }

@@ -1969,6 +1969,16 @@ func (m Model) View() string {
 				}
 			}
 		}
+
+		// If scroll starts mid-way through a blockquote logical line, seed InBlockquote
+		firstVl := m.wrap.VisualLines[m.scrollOffset]
+		if firstVl.LogicalCol > 0 {
+			line := m.buffer.Line(firstVl.LogicalLine)
+			trimmed := strings.TrimSpace(string(line))
+			if len(trimmed) > 0 && trimmed[0] == '>' {
+				hlState.InBlockquote = true
+			}
+		}
 	}
 
 	// Get selection range for rendering
@@ -1992,8 +2002,14 @@ func (m Model) View() string {
 		// Get the runes for this visual line
 		lineRunes := vl.Runes
 
+		// Clear per-logical-line state at the start of each new logical line
+		lineHlState := hlState
+		if vl.LogicalCol == 0 {
+			lineHlState.InBlockquote = false
+		}
+
 		// Highlight
-		tokens, newState := HighlightLine(lineRunes, m.theme, hlState, vl.LogicalLine)
+		tokens, newState := HighlightLine(lineRunes, m.theme, lineHlState, vl.LogicalLine)
 		if vl.LogicalCol == 0 {
 			hlState = newState
 		}
