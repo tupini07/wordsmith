@@ -27,6 +27,3 @@ show_line_numbers: false
 #     - "catppuccin-latte" Pastel light palette inspired by Catppuccin Latte
 #     - "solarized-light"  Warm-cool light palette inspired by Solarized Light
 theme: "gruvbox"
-
-# Highlight the active (cursor) line with a subtle background (default: false)
-typewriter_highlight: false

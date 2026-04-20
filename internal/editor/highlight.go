@@ -453,6 +453,44 @@ func findURLEnd(line []rune, pos int) int {
 	return i
 }
 
+// SliceTokens extracts the portion of tokens covering runes [start, end) of the
+// original line. Tokens are split at boundaries as needed.
+func SliceTokens(tokens []Token, start, end int) []Token {
+	var result []Token
+	pos := 0
+	for _, tok := range tokens {
+		tokRunes := []rune(tok.Text)
+		tokEnd := pos + len(tokRunes)
+
+		if tokEnd <= start {
+			pos = tokEnd
+			continue
+		}
+		if pos >= end {
+			break
+		}
+
+		sliceStart := 0
+		if start > pos {
+			sliceStart = start - pos
+		}
+		sliceEnd := len(tokRunes)
+		if end < tokEnd {
+			sliceEnd = end - pos
+		}
+
+		if sliceStart < sliceEnd {
+			result = append(result, Token{
+				Text:  string(tokRunes[sliceStart:sliceEnd]),
+				Style: tok.Style,
+			})
+		}
+
+		pos = tokEnd
+	}
+	return result
+}
+
 // RenderTokens renders a list of tokens into a styled string with cursor and selection.
 // When activeLine is true, the token backgrounds are replaced with the active-line
 // highlight color for a subtle "current line" indicator.

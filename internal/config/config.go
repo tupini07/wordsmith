@@ -13,13 +13,12 @@ import (
 var exampleConfig []byte
 
 type Config struct {
-	VaultPath           string        `yaml:"vault_path"`
-	AutosaveDelay       time.Duration `yaml:"autosave_delay"`
-	TabWidth            int           `yaml:"tab_width"`
-	ContentWidth        int           `yaml:"content_width"`
-	ShowLineNumbers     bool          `yaml:"show_line_numbers"`
-	Theme               string        `yaml:"theme"`
-	TypewriterHighlight bool          `yaml:"typewriter_highlight"`
+	VaultPath       string        `yaml:"vault_path"`
+	AutosaveDelay   time.Duration `yaml:"autosave_delay"`
+	TabWidth        int           `yaml:"tab_width"`
+	ContentWidth    int           `yaml:"content_width"`
+	ShowLineNumbers bool          `yaml:"show_line_numbers"`
+	Theme           string        `yaml:"theme"`
 }
 
 func Default() Config {
@@ -89,13 +88,12 @@ func Load() (Config, error) {
 
 	// yaml.v3 doesn't handle time.Duration directly, so we use a helper struct
 	var raw struct {
-		VaultPath           string `yaml:"vault_path"`
-		AutosaveDelay       string `yaml:"autosave_delay"`
-		TabWidth            int    `yaml:"tab_width"`
-		ContentWidth        int    `yaml:"content_width"`
-		ShowLineNumbers     bool   `yaml:"show_line_numbers"`
-		Theme               string `yaml:"theme"`
-		TypewriterHighlight *bool  `yaml:"typewriter_highlight"`
+		VaultPath       string `yaml:"vault_path"`
+		AutosaveDelay   string `yaml:"autosave_delay"`
+		TabWidth        int    `yaml:"tab_width"`
+		ContentWidth    int    `yaml:"content_width"`
+		ShowLineNumbers bool   `yaml:"show_line_numbers"`
+		Theme           string `yaml:"theme"`
 	}
 
 	if err := yaml.Unmarshal(data, &raw); err != nil {
@@ -120,9 +118,6 @@ func Load() (Config, error) {
 	cfg.ShowLineNumbers = raw.ShowLineNumbers
 	if raw.Theme != "" {
 		cfg.Theme = raw.Theme
-	}
-	if raw.TypewriterHighlight != nil {
-		cfg.TypewriterHighlight = *raw.TypewriterHighlight
 	}
 
 	return cfg, nil

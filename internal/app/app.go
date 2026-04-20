@@ -51,7 +51,6 @@ func New(cfg config.Config, st state.State, filePath string) Model {
 	ed := editor.New(cfg.TabWidth, cfg.ContentWidth, theme)
 	ed.SetAutosaveDelay(cfg.AutosaveDelay)
 	ed.SetVaultPath(cfg.VaultPath)
-	ed.SetTypewriterHighlight(cfg.TypewriterHighlight)
 
 	tree := filetree.New(cfg.VaultPath)
 	tree.SetThemeColors(theme.Bg, theme.ChromeBg, theme.Fg, theme.AccentColor, theme.DirColor)
@@ -546,9 +545,6 @@ func (m *Model) reloadConfig() {
 	}
 	if newCfg.ContentWidth != m.cfg.ContentWidth {
 		m.editor.SetContentWidth(newCfg.ContentWidth)
-	}
-	if newCfg.TypewriterHighlight != m.cfg.TypewriterHighlight {
-		m.editor.SetTypewriterHighlight(newCfg.TypewriterHighlight)
 	}
 	if newCfg.AutosaveDelay != m.cfg.AutosaveDelay {
 		m.editor.SetAutosaveDelay(newCfg.AutosaveDelay)

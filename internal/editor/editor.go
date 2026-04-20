@@ -78,12 +78,10 @@ type Model struct {
 
 	// Autosave
 	autosaveDelay time.Duration
-	pendingSave   bool
 
 	// Config
-	tabWidth            int
-	contentWidth        int
-	typewriterHighlight bool
+	tabWidth     int
+	contentWidth int
 
 	// External change tracking
 	externallyChanged bool // file was modified externally, pending user action
@@ -202,11 +200,6 @@ func (m *Model) SetAutosaveDelay(d time.Duration) {
 func (m *Model) SetEditorOffset(x, y int) {
 	m.editorOffsetX = x
 	m.editorOffsetY = y
-}
-
-// SetTypewriterHighlight enables/disables highlighting of the active line.
-func (m *Model) SetTypewriterHighlight(on bool) {
-	m.typewriterHighlight = on
 }
 
 // SetStatus sets a temporary status message in the status bar.
@@ -434,8 +427,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.MouseMsg:
 		return m.handleMouseMsg(msg)
 	case AutosaveTickMsg:
-		if m.pendingSave && m.buffer.IsDirty() {
-			m.pendingSave = false
+		if m.buffer.IsDirty() {
 			if err := m.SaveFile(); err != nil {
 				m.saveStatus = "Save failed"
 				m.saveStatusAt = time.Now()
@@ -466,6 +458,9 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch {
 	// Quit
 	case key.Matches(msg, km.Quit):
+		if m.buffer.IsDirty() {
+			m.SaveFile()
+		}
 		return m, tea.Quit
 
 	// Save (force-save if externally changed)
@@ -813,9 +808,31 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	case key.Matches(msg, km.Enter):
 		m.deleteSelection()
-		m.buffer.InsertNewline(m.cursorLine, m.cursorCol)
-		m.cursorLine++
-		m.cursorCol = 0
+		currentLine := m.buffer.Line(m.cursorLine)
+		prefix, markerEnd, hasContent := listPrefix(currentLine)
+
+		if prefix != "" && !hasContent {
+			// Empty list item — remove the marker, ending the list
+			m.buffer.BeginUndoGroup()
+			for j := markerEnd - 1; j >= 0; j-- {
+				m.buffer.DeleteChar(m.cursorLine, j)
+			}
+			m.buffer.EndUndoGroup()
+			m.cursorCol = 0
+		} else {
+			m.buffer.InsertNewline(m.cursorLine, m.cursorCol)
+			m.cursorLine++
+			m.cursorCol = 0
+			if prefix != "" && hasContent {
+				// Insert the continuation prefix on the new line
+				m.buffer.BeginUndoGroup()
+				for _, r := range []rune(prefix) {
+					m.buffer.InsertChar(m.cursorLine, m.cursorCol, r)
+					m.cursorCol++
+				}
+				m.buffer.EndUndoGroup()
+			}
+		}
 		m.clearSelection()
 		m.rewrap()
 		m.updatePreferredCol()
@@ -1313,24 +1330,20 @@ func (m *Model) ensureCursorVisible() {
 	}
 	visRow, _ := m.wrap.LogicalToVisual(m.cursorLine, m.cursorCol)
 
-	// Typewriter scrolling: keep cursor at ~75% of viewport height.
-	// Only activates once there's enough content above to fill the space.
-	anchor := m.height * 3 / 4
-	if anchor < 1 {
-		anchor = 1
+	// Standard scrolling: only adjust if cursor is outside the viewport.
+	if visRow < m.scrollOffset {
+		m.scrollOffset = visRow
+	} else if visRow >= m.scrollOffset+m.height {
+		m.scrollOffset = visRow - m.height + 1
 	}
-	ideal := visRow - anchor
-	if ideal < 0 {
-		ideal = 0
-	}
+
 	maxScroll := m.wrap.VisualLineCount() - m.height
 	if maxScroll < 0 {
 		maxScroll = 0
 	}
-	if ideal > maxScroll {
-		ideal = maxScroll
+	if m.scrollOffset > maxScroll {
+		m.scrollOffset = maxScroll
 	}
-	m.scrollOffset = ideal
 }
 
 // Selection
@@ -1832,10 +1845,54 @@ func (m *Model) removeLeadingSpaces(line int) {
 }
 
 func (m Model) scheduleAutosave() tea.Cmd {
-	m.pendingSave = true
 	return tea.Tick(m.autosaveDelay, func(t time.Time) tea.Msg {
 		return AutosaveTickMsg{}
 	})
+}
+
+// listPrefix examines a line and returns:
+//   - prefix: the bullet/number prefix for a continuation line (e.g. "- ", "2. ")
+//   - markerEnd: index in line where the marker+space ends (0 if not a list line)
+//   - hasContent: whether there's non-whitespace text after the marker
+func listPrefix(line []rune) (prefix string, markerEnd int, hasContent bool) {
+	i := 0
+	// Leading whitespace (indentation)
+	for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+		i++
+	}
+	indent := string(line[:i])
+
+	if i >= len(line) {
+		return "", 0, false
+	}
+
+	// Unordered: - or * or + followed by space
+	if (line[i] == '-' || line[i] == '*' || line[i] == '+') && i+1 < len(line) && line[i+1] == ' ' {
+		marker := string(line[i : i+2])
+		end := i + 2
+		content := strings.TrimSpace(string(line[end:]))
+		return indent + marker, end, len(content) > 0
+	}
+
+	// Ordered: digits followed by . or ) and space
+	start := i
+	for i < len(line) && line[i] >= '0' && line[i] <= '9' {
+		i++
+	}
+	if i > start && i < len(line) && (line[i] == '.' || line[i] == ')') && i+1 < len(line) && line[i+1] == ' ' {
+		// Parse current number and increment
+		numStr := string(line[start:i])
+		sep := line[i] // '.' or ')'
+		num := 0
+		for _, c := range numStr {
+			num = num*10 + int(c-'0')
+		}
+		end := i + 2
+		content := strings.TrimSpace(string(line[end:]))
+		return fmt.Sprintf("%s%d%c ", indent, num+1, sep), end, len(content) > 0
+	}
+
+	return "", 0, false
 }
 
 // FileWatchCmd returns a command that ticks every 2 seconds to check for
@@ -1991,36 +2048,35 @@ func (m Model) View() string {
 	}
 
 	lastLogicalLine := -1
+	var fullLineTokens []Token // cached tokens for the current logical line
 	for vi := m.scrollOffset; vi < visEnd; vi++ {
 		vl := m.wrap.VisualLines[vi]
 
-		// Only update frontmatter state at start of logical line
-		if vl.LogicalLine != lastLogicalLine && vl.LogicalCol == 0 {
+		// Tokenize the full logical line once, then slice for sub-lines
+		if vl.LogicalLine != lastLogicalLine || fullLineTokens == nil {
 			lastLogicalLine = vl.LogicalLine
+			lineHlState := hlState
+			if vl.LogicalCol == 0 {
+				lineHlState.InBlockquote = false
+			}
+			fullLogicalLine := m.buffer.Line(vl.LogicalLine)
+			var newState HighlightState
+			fullLineTokens, newState = HighlightLine(fullLogicalLine, m.theme, lineHlState, vl.LogicalLine)
+			if vl.LogicalCol == 0 {
+				hlState = newState
+			}
 		}
 
-		// Get the runes for this visual line
-		lineRunes := vl.Runes
-
-		// Clear per-logical-line state at the start of each new logical line
-		lineHlState := hlState
-		if vl.LogicalCol == 0 {
-			lineHlState.InBlockquote = false
-		}
-
-		// Highlight
-		tokens, newState := HighlightLine(lineRunes, m.theme, lineHlState, vl.LogicalLine)
-		if vl.LogicalCol == 0 {
-			hlState = newState
-		}
+		// Slice tokens for this visual sub-line
+		tokens := SliceTokens(fullLineTokens, vl.LogicalCol, vl.LogicalCol+len(vl.Runes))
 
 		// Determine cursor position on this visual line
 		cursorVisCol := -1
 		if m.focused && vl.LogicalLine == m.cursorLine {
 			localCol := m.cursorCol - vl.LogicalCol
-			if localCol >= 0 && localCol < len(lineRunes) {
+			if localCol >= 0 && localCol < len(vl.Runes) {
 				cursorVisCol = localCol
-			} else if localCol == len(lineRunes) {
+			} else if localCol == len(vl.Runes) {
 				// Cursor at end of visual line — only show here if this is the
 				// last visual sub-line for this logical line (otherwise it
 				// belongs at col 0 of the next sub-line).
@@ -2070,7 +2126,7 @@ func (m Model) View() string {
 		}
 
 		// Active line highlighting (only the visual sub-line containing the cursor)
-		isActiveLine := m.typewriterHighlight && m.focused && cursorVisCol >= 0
+		isActiveLine := m.focused && cursorVisCol >= 0
 
 		rendered := RenderTokens(tokens, cursorVisCol, selStart, selEnd, m.theme, isActiveLine)
 

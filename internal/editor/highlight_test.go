@@ -229,3 +229,40 @@ func TestHighlightNumberedList(t *testing.T) {
 		t.Errorf("expected list marker %q, got %q", "1. ", tokens[0].Text)
 	}
 }
+
+func TestSliceTokens(t *testing.T) {
+	theme := GruvboxTheme()
+	// "hello *italic* world" — tokens: ["hello ", "*italic*", " world"]
+	tokens, _ := HighlightLine([]rune("hello *italic* world"), theme, noState, 5)
+
+	// Slice the middle — should preserve italic style across the cut
+	sliced := SliceTokens(tokens, 4, 12)
+	combined := ""
+	for _, tok := range sliced {
+		combined += tok.Text
+	}
+	if combined != "o *itali" {
+		t.Errorf("expected %q, got %q", "o *itali", combined)
+	}
+
+	// Check that sliced tokens preserve styles (italic portion should be styled)
+	if len(sliced) < 2 {
+		t.Fatalf("expected at least 2 tokens in slice, got %d", len(sliced))
+	}
+}
+
+func TestSliceTokensFullLine(t *testing.T) {
+	theme := GruvboxTheme()
+	line := []rune("hello **bold** world")
+	tokens, _ := HighlightLine(line, theme, noState, 5)
+
+	// Slicing the full range should give identical text
+	sliced := SliceTokens(tokens, 0, len(line))
+	combined := ""
+	for _, tok := range sliced {
+		combined += tok.Text
+	}
+	if combined != string(line) {
+		t.Errorf("full slice = %q, want %q", combined, string(line))
+	}
+}
