@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,8 @@ import (
 	"github.com/tupini07/wordsmith/internal/state"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/mattn/go-runewidth"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -489,6 +492,14 @@ func (m Model) View() string {
 
 	composed := title + "\n" + pad + "\n" + editorView + "\n" + pad + "\n" + status
 
+	// Emoji picker overlay
+	if m.editor.EmojiActive() {
+		emojiView := m.renderEmojiPicker()
+		if emojiView != "" {
+			composed = overlayAt(composed, emojiView, m.emojiPickerX(), m.emojiPickerY(), m.width, m.height)
+		}
+	}
+
 	// Fuzzy finder overlay
 	if m.finder.IsVisible() {
 		finderView := m.finder.View()
@@ -621,4 +632,128 @@ func splitLines(s string, minLen int) []string {
 		lines = append(lines, "")
 	}
 	return lines
+}
+
+func (m Model) emojiPickerX() int {
+	row, _ := m.editor.CursorScreenPos()
+	if row < 0 {
+		return 0
+	}
+
+	// Estimate picker height: header + matches + border (top+bottom)
+	matches := m.editor.EmojiMatches()
+	itemCount := len(matches)
+	if itemCount == 0 {
+		itemCount = 1 // "no matches" line
+	}
+	pickerHeight := itemCount + 1 + 2 // items + header + border
+
+	belowY := row + 3 // below cursor (title + padding = 2 extra lines)
+
+	if belowY+pickerHeight > m.height {
+		// Show above cursor instead
+		aboveY := row + 2 - pickerHeight
+		if aboveY < 0 {
+			aboveY = 0
+		}
+		return aboveY
+	}
+	return belowY
+}
+
+func (m Model) emojiPickerY() int {
+	// Left-align with some margin
+	leftMargin := 0
+	if m.editor.ContentWidth() > 0 && m.width > m.editor.ContentWidth() {
+		leftMargin = (m.width - m.editor.ContentWidth()) / 2
+	}
+	return leftMargin + 2
+}
+
+func (m Model) renderEmojiPicker() string {
+	theme := editor.ThemeByName(m.activeTheme)
+	matches := m.editor.EmojiMatches()
+	query := m.editor.EmojiQuery()
+	cursor := m.editor.EmojiCursor()
+
+	innerWidth := 24
+
+	borderStyle := lipgloss.NewStyle().
+		Foreground(theme.Fg).
+		Background(theme.ChromeBg).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(theme.AccentColor).
+		BorderBackground(theme.ChromeBg)
+
+	headerStyle := lipgloss.NewStyle().
+		Foreground(theme.DimColor).
+		Background(theme.ChromeBg)
+
+	normalStyle := lipgloss.NewStyle().
+		Foreground(theme.Fg).
+		Background(theme.ChromeBg)
+
+	selectedStyle := lipgloss.NewStyle().
+		Foreground(theme.Bg).
+		Background(theme.AccentColor)
+
+	padLine := func(line string, style lipgloss.Style) string {
+		w := runewidth.StringWidth(line)
+		if w > innerWidth {
+			line = runewidth.Truncate(line, innerWidth, "")
+			w = innerWidth
+		}
+		if w < innerWidth {
+			line += strings.Repeat(" ", innerWidth-w)
+		}
+		return style.Render(line)
+	}
+
+	var lines []string
+	header := fmt.Sprintf(" ::%s", query)
+	lines = append(lines, padLine(header, headerStyle))
+
+	if len(matches) == 0 {
+		lines = append(lines, padLine(" no matches", normalStyle))
+	} else {
+		for i, entry := range matches {
+			line := fmt.Sprintf(" %s  :%s:", entry.Emoji, entry.Name)
+			if i == cursor {
+				lines = append(lines, padLine(line, selectedStyle))
+			} else {
+				lines = append(lines, padLine(line, normalStyle))
+			}
+		}
+	}
+
+	content := strings.Join(lines, "\n")
+	return borderStyle.Width(innerWidth).Render(content)
+}
+
+// overlayAt places an overlay at position (row, col) on the background.
+func overlayAt(bg, overlay string, row, col, width, height int) string {
+	bgLines := splitLines(bg, height)
+	overlayLines := strings.Split(overlay, "\n")
+
+	for i, ol := range overlayLines {
+		targetRow := row + i
+		if targetRow < 0 || targetRow >= len(bgLines) {
+			continue
+		}
+		bgLine := bgLines[targetRow]
+
+		// Use charmbracelet/x/ansi for proper ANSI-aware string slicing
+		prefix := ansi.Truncate(bgLine, col, "")
+		overlayWidth := lipgloss.Width(ol)
+		suffixStart := col + overlayWidth
+		suffix := ""
+		bgWidth := lipgloss.Width(bgLine)
+		if suffixStart < bgWidth {
+			suffix = ansi.TruncateLeft(bgLine, suffixStart, "")
+		}
+
+		bgLines[targetRow] = prefix + ol + suffix
+	}
+
+	return strings.Join(bgLines[:height], "\n")
 }

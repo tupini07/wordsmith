@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 	"github.com/tupini07/wordsmith/internal/clipboard"
+	"github.com/tupini07/wordsmith/internal/emoji"
 )
 
 // SaveMsg is sent when the file should be saved.
@@ -86,6 +87,12 @@ type Model struct {
 	// External change tracking
 	externallyChanged bool // file was modified externally, pending user action
 
+	// Emoji picker
+	emojiActive   bool   // picker is visible
+	emojiQuery    string // current search text after ::
+	emojiCursor   int    // selected entry index
+	emojiStartCol int    // buffer column where first ':' was inserted
+
 	// State
 	focused bool
 }
@@ -141,6 +148,11 @@ func (m *Model) SetContentWidth(w int) {
 	m.rewrap()
 }
 
+// ContentWidth returns the configured content column width.
+func (m Model) ContentWidth() int {
+	return m.contentWidth
+}
+
 // SetFilePath sets the current file path.
 func (m *Model) SetFilePath(path string) {
 	m.filePath = path
@@ -159,6 +171,19 @@ func (m Model) FilePath() string {
 // CursorPos returns the current cursor line and column.
 func (m Model) CursorPos() (line, col int) {
 	return m.cursorLine, m.cursorCol
+}
+
+// CursorScreenPos returns the cursor's visual row and column relative to the
+// editor viewport (0-based). Row is -1 if cursor is not visible.
+func (m Model) CursorScreenPos() (row, col int) {
+	visRow, visCol := m.wrap.LogicalToVisual(m.cursorLine, m.cursorCol)
+	row = visRow - m.scrollOffset
+	if row < 0 || row >= m.height {
+		return -1, 0
+	}
+	// Calculate display column accounting for wide characters
+	col = visCol
+	return row, col
 }
 
 // SetCursorPos moves the cursor to the given line and column, clamping to valid bounds.
@@ -180,12 +205,10 @@ func (m Model) WordCount() int {
 }
 
 // SaveStatus returns the current save status string.
+// Only shows actionable messages (errors, warnings, reload confirmations).
 func (m Model) SaveStatus() string {
 	if m.saveStatus != "" && time.Since(m.saveStatusAt) < 3*time.Second {
 		return m.saveStatus
-	}
-	if m.buffer.IsDirty() {
-		return "Modified"
 	}
 	return ""
 }
@@ -273,8 +296,6 @@ func (m *Model) SaveFile() error {
 	}
 
 	m.buffer.ClearDirty()
-	m.saveStatus = "Saved"
-	m.saveStatusAt = time.Now()
 
 	// Update mtime
 	info, err = os.Stat(m.filePath)
@@ -425,6 +446,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return m.handleKeyMsg(msg)
 	case tea.MouseMsg:
+		if m.emojiActive {
+			m.emojiActive = false
+		}
 		return m.handleMouseMsg(msg)
 	case AutosaveTickMsg:
 		if m.buffer.IsDirty() {
@@ -453,6 +477,11 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd) {
+	// Emoji picker intercepts keys when active
+	if m.emojiActive {
+		return m.handleEmojiPickerKey(msg)
+	}
+
 	km := m.keymap
 
 	switch {
@@ -882,6 +911,18 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd) {
 			if isPaste {
 				m.buffer.EndUndoGroup()
 			}
+
+			// Detect :: trigger for emoji picker (only on single-char non-paste input)
+			if !isPaste && len(runes) == 1 && runes[0] == ':' && m.cursorCol >= 2 {
+				line := m.buffer.Line(m.cursorLine)
+				if line[m.cursorCol-2] == ':' {
+					m.emojiActive = true
+					m.emojiQuery = ""
+					m.emojiCursor = 0
+					m.emojiStartCol = m.cursorCol - 2
+				}
+			}
+
 			m.clearSelection()
 			m.rewrap()
 			m.updatePreferredCol()
@@ -1844,6 +1885,143 @@ func (m *Model) removeLeadingSpaces(line int) {
 	}
 }
 
+// EmojiActive returns whether the emoji picker is currently visible.
+func (m Model) EmojiActive() bool {
+	return m.emojiActive
+}
+
+// EmojiMatches returns the current emoji search results.
+func (m Model) EmojiMatches() []emoji.Entry {
+	return emoji.Search(m.emojiQuery, 8)
+}
+
+// EmojiCursor returns the current selection index in the emoji picker.
+func (m Model) EmojiCursor() int {
+	return m.emojiCursor
+}
+
+// EmojiQuery returns the current emoji search query.
+func (m Model) EmojiQuery() string {
+	return m.emojiQuery
+}
+
+func (m Model) handleEmojiPickerKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	matches := emoji.Search(m.emojiQuery, 8)
+
+	switch {
+	case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
+		m.emojiActive = false
+		return m, nil
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
+		if len(matches) > 0 && m.emojiCursor < len(matches) {
+			selected := matches[m.emojiCursor]
+			// Replace ::query with the emoji
+			endCol := m.cursorCol
+			m.buffer.BeginUndoGroup()
+			m.buffer.DeleteRange(m.cursorLine, m.emojiStartCol, m.cursorLine, endCol)
+			for i, r := range []rune(selected.Emoji) {
+				m.buffer.InsertChar(m.cursorLine, m.emojiStartCol+i, r)
+			}
+			m.buffer.EndUndoGroup()
+			m.cursorCol = m.emojiStartCol + len([]rune(selected.Emoji))
+		}
+		m.emojiActive = false
+		m.rewrap()
+		m.updatePreferredCol()
+		m.ensureCursorVisible()
+		return m, m.scheduleAutosave()
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("up"))):
+		if m.emojiCursor > 0 {
+			m.emojiCursor--
+		}
+		return m, nil
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("down"))):
+		if m.emojiCursor < len(matches)-1 {
+			m.emojiCursor++
+		}
+		return m, nil
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
+		// Tab also selects (like autocomplete)
+		if len(matches) > 0 && m.emojiCursor < len(matches) {
+			selected := matches[m.emojiCursor]
+			endCol := m.cursorCol
+			m.buffer.BeginUndoGroup()
+			m.buffer.DeleteRange(m.cursorLine, m.emojiStartCol, m.cursorLine, endCol)
+			for i, r := range []rune(selected.Emoji) {
+				m.buffer.InsertChar(m.cursorLine, m.emojiStartCol+i, r)
+			}
+			m.buffer.EndUndoGroup()
+			m.cursorCol = m.emojiStartCol + len([]rune(selected.Emoji))
+		}
+		m.emojiActive = false
+		m.rewrap()
+		m.updatePreferredCol()
+		m.ensureCursorVisible()
+		return m, m.scheduleAutosave()
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("backspace"))):
+		if m.cursorCol <= m.emojiStartCol+2 {
+			// Deleting back into :: — remove the :: and close picker
+			m.buffer.BeginUndoGroup()
+			m.buffer.DeleteRange(m.cursorLine, m.emojiStartCol, m.cursorLine, m.cursorCol)
+			m.buffer.EndUndoGroup()
+			m.cursorCol = m.emojiStartCol
+			m.emojiActive = false
+			m.rewrap()
+			m.updatePreferredCol()
+			m.ensureCursorVisible()
+			return m, m.scheduleAutosave()
+		}
+		// Normal backspace within query
+		newLine, newCol, ok := m.buffer.Backspace(m.cursorLine, m.cursorCol)
+		if ok {
+			m.cursorLine = newLine
+			m.cursorCol = newCol
+			// Recalculate query from buffer
+			line := m.buffer.Line(m.cursorLine)
+			queryStart := m.emojiStartCol + 2
+			if queryStart <= len(line) {
+				m.emojiQuery = string(line[queryStart:m.cursorCol])
+			} else {
+				m.emojiQuery = ""
+			}
+			m.emojiCursor = 0
+		}
+		m.rewrap()
+		m.updatePreferredCol()
+		m.ensureCursorVisible()
+		return m, m.scheduleAutosave()
+
+	default:
+		if msg.Type == tea.KeyRunes || msg.Type == tea.KeySpace {
+			runes := msg.Runes
+			if msg.Type == tea.KeySpace {
+				runes = []rune{' '}
+			}
+			for _, r := range runes {
+				m.buffer.InsertChar(m.cursorLine, m.cursorCol, r)
+				m.cursorCol++
+			}
+			// Update query from buffer
+			line := m.buffer.Line(m.cursorLine)
+			queryStart := m.emojiStartCol + 2
+			if queryStart <= len(line) && m.cursorCol <= len(line) {
+				m.emojiQuery = string(line[queryStart:m.cursorCol])
+			}
+			m.emojiCursor = 0
+			m.rewrap()
+			m.updatePreferredCol()
+			m.ensureCursorVisible()
+			return m, m.scheduleAutosave()
+		}
+	}
+	return m, nil
+}
+
 func (m Model) scheduleAutosave() tea.Cmd {
 	return tea.Tick(m.autosaveDelay, func(t time.Time) tea.Msg {
 		return AutosaveTickMsg{}
@@ -2205,10 +2383,48 @@ func (m Model) TitleView() string {
 		Render(title)
 }
 
+// formatNumber formats an integer with comma-separated thousands.
+func formatNumber(n int) string {
+	s := fmt.Sprintf("%d", n)
+	if len(s) <= 3 {
+		return s
+	}
+	var result []byte
+	for i, c := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			result = append(result, ',')
+		}
+		result = append(result, byte(c))
+	}
+	return string(result)
+}
+
+// countWords counts the number of words in a string.
+func countWords(s string) int {
+	count := 0
+	inWord := false
+	for _, r := range s {
+		if unicode.IsSpace(r) {
+			inWord = false
+		} else if !inWord {
+			inWord = true
+			count++
+		}
+	}
+	return count
+}
+
 // StatusView renders the status bar.
 func (m Model) StatusView() string {
 	cw := m.chromeWidth()
-	wc := fmt.Sprintf("Words: %d", m.WordCount())
+
+	wc := fmt.Sprintf("Words: %s", formatNumber(m.WordCount()))
+	if m.hasSelection {
+		selText := m.selectedText()
+		selWC := countWords(selText)
+		wc += fmt.Sprintf(" (%s selected)", formatNumber(selWC))
+	}
+
 	status := m.SaveStatus()
 
 	left := wc

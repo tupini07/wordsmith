@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mattn/go-runewidth"
 )
 
 // Token represents a highlighted segment of text.
@@ -496,11 +495,10 @@ func SliceTokens(tokens []Token, start, end int) []Token {
 // highlight color for a subtle "current line" indicator.
 func RenderTokens(tokens []Token, cursorCol int, selStart, selEnd int, theme Theme, activeLine bool) string {
 	var sb strings.Builder
-	col := 0
+	runeIdx := 0
 
 	for _, tok := range tokens {
 		for _, r := range tok.Text {
-			rw := runewidth.RuneWidth(r)
 			style := tok.Style
 
 			// Apply active line background (preserves foreground + bold/italic)
@@ -509,22 +507,22 @@ func RenderTokens(tokens []Token, cursorCol int, selStart, selEnd int, theme The
 			}
 
 			// Selection takes priority
-			if selStart >= 0 && selEnd >= 0 && col >= selStart && col < selEnd {
+			if selStart >= 0 && selEnd >= 0 && runeIdx >= selStart && runeIdx < selEnd {
 				style = theme.Selection
 			}
 
 			// Cursor on top
-			if col == cursorCol {
+			if runeIdx == cursorCol {
 				style = theme.Cursor
 			}
 
 			sb.WriteString(style.Render(string(r)))
-			col += rw
+			runeIdx++
 		}
 	}
 
 	// If cursor is at end of line, render a cursor space
-	if cursorCol == col {
+	if cursorCol == runeIdx {
 		sb.WriteString(theme.Cursor.Render(" "))
 	}
 
