@@ -5,6 +5,7 @@ package clipboard
 
 import (
 	"fmt"
+	"strings"
 	"syscall"
 	"unsafe"
 )
@@ -37,6 +38,9 @@ func platformWrite(text string) error {
 	defer closeClipboard.Call()
 
 	emptyClipboard.Call()
+
+	// Strip any NUL bytes (invalid in clipboard text, causes StringToUTF16 panic)
+	text = strings.ReplaceAll(text, "\x00", "")
 
 	// Convert to UTF-16 with null terminator
 	utf16 := syscall.StringToUTF16(text)
