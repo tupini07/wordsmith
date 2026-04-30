@@ -1,6 +1,9 @@
 package editor
 
-import "unicode"
+import (
+	"strings"
+	"unicode"
+)
 
 // Buffer is a rune-aware line-based text buffer.
 type Buffer struct {
@@ -52,6 +55,10 @@ func (b *Buffer) SetContent(s string) {
 	b.dirty = false
 	b.undoStack = nil
 	b.redoStack = nil
+
+	// Normalize CRLF to LF
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
 
 	start := 0
 	for i := 0; i < len(s); i++ {
