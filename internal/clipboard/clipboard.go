@@ -9,6 +9,25 @@ import (
 
 // Write copies text to the system clipboard.
 func Write(text string) error {
+	return platformWrite(text)
+}
+
+// Read returns the current contents of the system clipboard.
+func Read() (string, error) {
+	return platformRead()
+}
+
+func isWSL() bool {
+	data, err := os.ReadFile("/proc/version")
+	if err != nil {
+		return false
+	}
+	lower := strings.ToLower(string(data))
+	return strings.Contains(lower, "microsoft") || strings.Contains(lower, "wsl")
+}
+
+// shellWrite is the fallback clipboard write using external commands.
+func shellWrite(text string) error {
 	cmd := writeCmd()
 	if cmd == nil {
 		return nil
@@ -17,8 +36,8 @@ func Write(text string) error {
 	return cmd.Run()
 }
 
-// Read returns the current contents of the system clipboard.
-func Read() (string, error) {
+// shellRead is the fallback clipboard read using external commands.
+func shellRead() (string, error) {
 	cmd := readCmd()
 	if cmd == nil {
 		return "", nil
@@ -30,15 +49,6 @@ func Read() (string, error) {
 	// powershell.exe appends \r\n; normalize
 	s := strings.TrimRight(string(out), "\r\n")
 	return s, nil
-}
-
-func isWSL() bool {
-	data, err := os.ReadFile("/proc/version")
-	if err != nil {
-		return false
-	}
-	lower := strings.ToLower(string(data))
-	return strings.Contains(lower, "microsoft") || strings.Contains(lower, "wsl")
 }
 
 func writeCmd() *exec.Cmd {
@@ -60,8 +70,6 @@ func writeCmd() *exec.Cmd {
 		if p, err := exec.LookPath("wl-copy"); err == nil {
 			return exec.Command(p)
 		}
-	case "windows":
-		return exec.Command("clip")
 	}
 	return nil
 }
@@ -85,8 +93,6 @@ func readCmd() *exec.Cmd {
 		if p, err := exec.LookPath("wl-paste"); err == nil {
 			return exec.Command(p)
 		}
-	case "windows":
-		return exec.Command("powershell", "-NoProfile", "-command", "Get-Clipboard")
 	}
 	return nil
 }
