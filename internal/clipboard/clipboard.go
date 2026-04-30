@@ -85,6 +85,8 @@ func readCmd() *exec.Cmd {
 		if p, err := exec.LookPath("wl-paste"); err == nil {
 			return exec.Command(p)
 		}
+	case "windows":
+		return exec.Command("powershell", "-NoProfile", "-command", "Get-Clipboard")
 	}
 	return nil
 }

@@ -477,6 +477,13 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd) {
+	// Ignore bare modifier key presses on Windows.
+	// The Win32 Console API emits KeyRunes events with null characters for
+	// Ctrl/Alt/Win key-down events. Safe no-op on Unix (never produces these).
+	if msg.Type == tea.KeyRunes && len(msg.Runes) > 0 && msg.Runes[0] == 0 {
+		return m, nil
+	}
+
 	// Emoji picker intercepts keys when active
 	if m.emojiActive {
 		return m.handleEmojiPickerKey(msg)
