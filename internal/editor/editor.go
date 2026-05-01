@@ -243,7 +243,7 @@ func (m *Model) LoadFile(path string) error {
 		return err
 	}
 
-	m.buffer.SetContent(string(data))
+	m.buffer.SetContent(decodeToUTF8(data))
 	m.filePath = path
 	m.cursorLine = 0
 	m.cursorCol = 0
@@ -351,7 +351,7 @@ func (m *Model) ReloadFile() error {
 		return err
 	}
 
-	m.buffer.SetContent(string(data))
+	m.buffer.SetContent(decodeToUTF8(data))
 	m.externallyChanged = false
 	m.rewrap()
 
