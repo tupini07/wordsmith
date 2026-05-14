@@ -1,11 +1,35 @@
 package clipboard
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
 )
+
+// ErrUnavailable is returned when no clipboard backend is available on the
+// current system (e.g. Linux without xclip/xsel/wl-clipboard installed).
+// Callers can use UnavailableMessage to render an OS-specific install hint.
+var ErrUnavailable = errors.New("clipboard backend unavailable")
+
+// UnavailableMessage returns a human-readable, OS-specific hint explaining how
+// to make the clipboard work on the current system.
+func UnavailableMessage() string {
+	switch runtime.GOOS {
+	case "linux":
+		if isWSL() {
+			return "Clipboard unavailable: clip.exe / powershell.exe not found in PATH"
+		}
+		return "Clipboard unavailable: install xclip, xsel, or wl-clipboard"
+	case "darwin":
+		return "Clipboard unavailable: pbcopy/pbpaste not found"
+	case "windows":
+		return "Clipboard unavailable"
+	default:
+		return "Clipboard unavailable on " + runtime.GOOS
+	}
+}
 
 // Write copies text to the system clipboard.
 func Write(text string) error {
@@ -30,7 +54,7 @@ func isWSL() bool {
 func shellWrite(text string) error {
 	cmd := writeCmd()
 	if cmd == nil {
-		return nil
+		return ErrUnavailable
 	}
 	cmd.Stdin = strings.NewReader(text)
 	return cmd.Run()
@@ -40,7 +64,7 @@ func shellWrite(text string) error {
 func shellRead() (string, error) {
 	cmd := readCmd()
 	if cmd == nil {
-		return "", nil
+		return "", ErrUnavailable
 	}
 	out, err := cmd.Output()
 	if err != nil {

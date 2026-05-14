@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -777,23 +778,32 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, m.scheduleAutosave()
 
 	case key.Matches(msg, km.Copy):
+		var text string
 		if m.hasSelection {
-			clipboard.Write(m.selectedText())
+			text = m.selectedText()
 		} else {
 			// No selection — copy the current line
-			line := string(m.buffer.Line(m.cursorLine))
-			clipboard.Write(line)
+			text = string(m.buffer.Line(m.cursorLine))
+		}
+		if err := clipboard.Write(text); err != nil {
+			m.SetStatus(clipboardErrorMessage("copy", err))
 		}
 		return m, nil
 
 	case key.Matches(msg, km.Cut):
+		var text string
 		if m.hasSelection {
-			clipboard.Write(m.selectedText())
+			text = m.selectedText()
+		} else {
+			text = string(m.buffer.Line(m.cursorLine))
+		}
+		if err := clipboard.Write(text); err != nil {
+			m.SetStatus(clipboardErrorMessage("cut", err))
+			return m, nil
+		}
+		if m.hasSelection {
 			m.deleteSelection()
 		} else {
-			// No selection — cut the current line
-			line := string(m.buffer.Line(m.cursorLine))
-			clipboard.Write(line)
 			if m.buffer.LineCount() > 1 {
 				if m.cursorLine < m.buffer.LineCount()-1 {
 					m.buffer.DeleteRange(m.cursorLine, 0, m.cursorLine+1, 0)
@@ -816,7 +826,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	case key.Matches(msg, km.Paste):
 		text, err := clipboard.Read()
-		if err == nil && text != "" {
+		if err != nil {
+			m.SetStatus(clipboardErrorMessage("paste", err))
+			return m, nil
+		}
+		if text != "" {
 			if m.hasSelection {
 				m.deleteSelection()
 			}
@@ -2095,6 +2109,15 @@ func runesContainNewline(runes []rune) bool {
 		}
 	}
 	return false
+}
+
+// clipboardErrorMessage formats a clipboard failure for the status bar,
+// using a platform-specific install hint when no backend is available.
+func clipboardErrorMessage(action string, err error) string {
+	if errors.Is(err, clipboard.ErrUnavailable) {
+		return clipboard.UnavailableMessage()
+	}
+	return fmt.Sprintf("Clipboard %s failed: %s", action, err.Error())
 }
 
 // normalizePastedText collapses hard-wrapped lines into paragraphs.
