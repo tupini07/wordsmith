@@ -11,6 +11,8 @@ Wordsmith is designed for writers who keep notes and blog posts in markdown (e.g
 - **Zen writing mode** — centered content column with configurable width
 - **Autosave** — auto-saving with atomic writes
 - **Session persistence** — remembers your last opened file for seamless resume
+- **Structured settings** — `F2` opens a typed settings modal that stays current as new options are added
+- **Daily journal** — `Alt+J` opens today's configured journal entry, creating it when needed
 - **Fuzzy file finder** — `Ctrl+P` to quickly search and open any markdown file in your vault, or create new files
 - **File tree sidebar** — `Ctrl+E` to browse your vault directory structure, press `n` to create a new file
 - **Markdown hotkeys** — `Ctrl+B` bold, `Ctrl+I` italic, `Ctrl+K` link insertion
@@ -46,10 +48,14 @@ wordsmith
 
 ## Configuration
 
-Create a config file at `~/.config/wordsmith/config.yaml`:
+Press `F2` to open the structured settings editor. `Ctrl+S` validates and saves
+every supported option to `~/.config/wordsmith/config.yaml`; `Esc` cancels.
+You can also edit the YAML file directly:
 
 ```yaml
 vault_path: "/path/to/folder/with/markdown/notes"
+journal_folder: "Journal"
+journal_date_format: "YYYY-MM-DD"
 autosave_delay: "2s"
 tab_width: 4
 content_width: 80
@@ -110,6 +116,7 @@ All themes set explicit backgrounds on every element to prevent your terminal's 
 |-----|--------|
 | `Ctrl+P` | Open fuzzy file finder (type a new name to create) |
 | `Ctrl+E` | Toggle file tree sidebar |
+| `Alt+J` | Open or create today's journal entry |
 | `n` (in file tree) | Create new file in selected directory |
 | `l` (in file tree) | Highlight opened file in file tree |
 | `Ctrl+Left/Right` | Move by word |
@@ -134,7 +141,7 @@ All themes set explicit backgrounds on every element to prevent your terminal's 
 |-----|--------|
 | `Ctrl+S` | Save (or overwrite if file changed externally) |
 | `Ctrl+R` | Reload file from disk |
-| `F2` | Open config file for editing (hot-reloads on close) |
+| `F2` | Open structured settings (`Ctrl+S` save, `Esc` cancel) |
 | `F3` | Rename current file |
 | `F4` | Theme picker (live preview, Enter to confirm, Esc to cancel) |
 | `Ctrl+Q` | Quit |

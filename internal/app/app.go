@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/tupini07/wordsmith/internal/config"
 	"github.com/tupini07/wordsmith/internal/editor"
@@ -13,10 +14,10 @@ import (
 	"github.com/tupini07/wordsmith/internal/state"
 
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/x/ansi"
-	"github.com/mattn/go-runewidth"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/mattn/go-runewidth"
 )
 
 // AppMode represents the current application mode.
@@ -27,6 +28,7 @@ const (
 	ModeFileTree
 	ModeFuzzyFinder
 	ModeThemePicker
+	ModeSettings
 )
 
 const fileTreeWidth = 30
@@ -38,14 +40,15 @@ type Model struct {
 	tree        filetree.Model
 	finder      finder.Model
 	picker      themePicker
+	settings    settingsModal
 	cfg         config.Config
 	state       state.State
 	width       int
 	height      int
 	initFile    string
 	loaded      bool
-	configPath  string // cached config file path for detecting config edits
 	activeTheme string // runtime theme name (may differ from config)
+	now         func() time.Time
 }
 
 // New creates a new app model.
@@ -54,6 +57,7 @@ func New(cfg config.Config, st state.State, filePath string) Model {
 	ed := editor.New(cfg.TabWidth, cfg.ContentWidth, theme)
 	ed.SetAutosaveDelay(cfg.AutosaveDelay)
 	ed.SetVaultPath(cfg.VaultPath)
+	ed.SetShowLineNumbers(cfg.ShowLineNumbers)
 
 	tree := filetree.New(cfg.VaultPath)
 	tree.SetThemeColors(theme.Bg, theme.ChromeBg, theme.Fg, theme.AccentColor, theme.DirColor)
@@ -67,10 +71,12 @@ func New(cfg config.Config, st state.State, filePath string) Model {
 		tree:        tree,
 		finder:      fnd,
 		picker:      newThemePicker(),
+		settings:    newSettingsModal(),
 		cfg:         cfg,
 		state:       st,
 		initFile:    filePath,
 		activeTheme: cfg.Theme,
+		now:         time.Now,
 	}
 }
 
@@ -142,6 +148,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.openFile(msg.Path)
 
 	case tea.KeyMsg:
+		if m.mode == ModeSettings {
+			result, cmd := m.settings.HandleKey(msg)
+			if result == nil {
+				return m, cmd
+			}
+			if result.canceled {
+				m.mode = ModeEditor
+				m.editor.SetFocused(true)
+				return m, nil
+			}
+			if err := config.Save(result.cfg); err != nil {
+				m.settings.SetError(fmt.Errorf("save config: %w", err))
+				return m, nil
+			}
+
+			m.settings.Hide()
+			m.mode = ModeEditor
+			m.editor.SetFocused(true)
+			restartRequired := m.applySettings(result.cfg)
+			if restartRequired {
+				m.editor.SetStatus("Settings saved; restart to apply vault path")
+			} else {
+				m.editor.SetStatus("Settings saved")
+			}
+			return m, nil
+		}
+
+		// Alt-based bindings are reliably distinguishable in Windows Terminal,
+		// unlike several Ctrl combinations that map to control characters.
+		if key.Matches(msg, key.NewBinding(key.WithKeys("alt+j"))) {
+			return m.openTodayJournal()
+		}
+
 		// Theme picker gets first-priority key handling
 		if m.mode == ModeThemePicker {
 			result, preview := m.picker.HandleKey(msg)
@@ -197,18 +236,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("f2"))):
-			// Open config file for editing
-			cfgPath, err := config.EnsureExists()
+			cfg, err := config.Load()
 			if err != nil {
 				m.editor.SetStatus("Config error: " + err.Error())
 				return m, nil
 			}
-			// Save current file before switching
-			if m.editor.IsDirty() {
-				m.editor.SaveFile()
-			}
-			m.configPath = cfgPath
-			return m.openFile(cfgPath)
+			m.mode = ModeSettings
+			m.settings.Show(cfg)
+			m.tree.Hide()
+			m.finder.Hide()
+			m.editor.SetFocused(false)
+			m.updateSizes()
+			return m, nil
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("f3"))):
 			// Rename current file
@@ -263,6 +302,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	case tea.MouseMsg:
+		if m.mode == ModeSettings {
+			return m, nil
+		}
 		// When in file tree mode, clicks in the editor area switch to editor
 		if m.mode == ModeFileTree && msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress {
 			treeW := fileTreeWidth
@@ -304,37 +346,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tree, cmd = m.tree.Update(msg)
 	case ModeFuzzyFinder:
 		m.finder, cmd = m.finder.Update(msg)
+	case ModeSettings:
+		cmd = m.settings.Update(msg)
 	}
 
 	return m, cmd
 }
 
 func (m *Model) openFile(path string) (Model, tea.Cmd) {
-	// If we're leaving the config file, save it and reload settings
 	prevPath := m.editor.FilePath()
-	wasConfig := m.configPath != "" && prevPath == m.configPath
 
 	// Save cursor position for the file we're leaving
-	if prevPath != "" && prevPath != m.configPath {
+	if prevPath != "" {
 		line, col := m.editor.CursorPos()
 		rel := m.cfg.RelFilePath(prevPath)
 		m.state.SetCursorPos(rel, line, col)
 	}
 
 	if err := m.editor.LoadFile(path); err != nil {
+		m.editor.SetStatus("Open error: " + err.Error())
 		return *m, nil
 	}
 
-	// Don't track the config file as the "last opened file"
-	if path != m.configPath {
-		rel := m.cfg.RelFilePath(path)
-		m.state.SetLastFile(rel)
+	rel := m.cfg.RelFilePath(path)
+	m.state.SetLastFile(rel)
 
-		// Restore cursor position
-		line, col := m.state.GetCursorPos(rel)
-		if line > 0 || col > 0 {
-			m.editor.SetCursorPos(line, col)
-		}
+	// Restore cursor position
+	line, col := m.state.GetCursorPos(rel)
+	if line > 0 || col > 0 {
+		m.editor.SetCursorPos(line, col)
 	}
 
 	// Switch back to editor mode
@@ -344,27 +384,22 @@ func (m *Model) openFile(path string) (Model, tea.Cmd) {
 	m.editor.SetFocused(true)
 	m.updateSizes()
 
-	if wasConfig {
-		m.reloadConfig()
-	}
-
 	return *m, nil
 }
 
 func (m *Model) createAndOpenFile(absPath string) (tea.Model, tea.Cmd) {
 	// Validate the path stays inside the vault
 	absPath = filepath.Clean(absPath)
-	vaultAbs := filepath.Clean(m.cfg.VaultPath)
-	if !strings.HasPrefix(absPath, vaultAbs+string(filepath.Separator)) {
+	if !m.cfg.IsPathInVault(absPath) {
 		m.editor.SetStatus("Cannot create file outside vault")
-		return m, nil
+		return *m, nil
 	}
 
 	// Create parent directories
 	dir := filepath.Dir(absPath)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		m.editor.SetStatus("Error: " + err.Error())
-		return m, nil
+		return *m, nil
 	}
 
 	// Create file exclusively — never truncate an existing file
@@ -375,9 +410,13 @@ func (m *Model) createAndOpenFile(absPath string) (tea.Model, tea.Cmd) {
 			return m.openFile(absPath)
 		}
 		m.editor.SetStatus("Error: " + err.Error())
-		return m, nil
+		return *m, nil
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		os.Remove(absPath)
+		m.editor.SetStatus("Error: " + err.Error())
+		return *m, nil
+	}
 
 	// Add to finder's cached file list
 	rel := m.cfg.RelFilePath(absPath)
@@ -389,19 +428,18 @@ func (m *Model) createAndOpenFile(absPath string) (tea.Model, tea.Cmd) {
 func (m *Model) renameFile(oldPath, newPath string) (tea.Model, tea.Cmd) {
 	// Validate new path stays inside the vault
 	newPath = filepath.Clean(newPath)
-	vaultAbs := filepath.Clean(m.cfg.VaultPath)
-	if !strings.HasPrefix(newPath, vaultAbs+string(filepath.Separator)) {
+	if !m.cfg.IsPathInVault(newPath) {
 		m.editor.SetStatus("Cannot rename file outside vault")
 		m.mode = ModeEditor
 		m.editor.SetFocused(true)
-		return m, nil
+		return *m, nil
 	}
 
 	// Don't rename to same path
 	if oldPath == newPath {
 		m.mode = ModeEditor
 		m.editor.SetFocused(true)
-		return m, nil
+		return *m, nil
 	}
 
 	// Create parent directories for the new path
@@ -410,7 +448,7 @@ func (m *Model) renameFile(oldPath, newPath string) (tea.Model, tea.Cmd) {
 		m.editor.SetStatus("Error: " + err.Error())
 		m.mode = ModeEditor
 		m.editor.SetFocused(true)
-		return m, nil
+		return *m, nil
 	}
 
 	// Check the destination doesn't already exist
@@ -418,7 +456,7 @@ func (m *Model) renameFile(oldPath, newPath string) (tea.Model, tea.Cmd) {
 		m.editor.SetStatus("File already exists")
 		m.mode = ModeEditor
 		m.editor.SetFocused(true)
-		return m, nil
+		return *m, nil
 	}
 
 	// Perform the rename
@@ -426,7 +464,7 @@ func (m *Model) renameFile(oldPath, newPath string) (tea.Model, tea.Cmd) {
 		m.editor.SetStatus("Rename error: " + err.Error())
 		m.mode = ModeEditor
 		m.editor.SetFocused(true)
-		return m, nil
+		return *m, nil
 	}
 
 	// Update the editor to point at the new path
@@ -440,7 +478,56 @@ func (m *Model) renameFile(oldPath, newPath string) (tea.Model, tea.Cmd) {
 	m.mode = ModeEditor
 	m.editor.SetFocused(true)
 	m.updateSizes()
-	return m, nil
+	return *m, nil
+}
+
+func (m *Model) openTodayJournal() (tea.Model, tea.Cmd) {
+	m.closeOverlays()
+
+	if m.editor.IsDirty() {
+		if err := m.editor.SaveFile(); err != nil {
+			m.editor.SetStatus("Cannot open journal: " + err.Error())
+			return *m, nil
+		}
+	}
+
+	now := time.Now
+	if m.now != nil {
+		now = m.now
+	}
+	path, err := m.cfg.JournalFilePath(now())
+	if err != nil {
+		m.editor.SetStatus("Journal: " + err.Error())
+		return *m, nil
+	}
+
+	info, err := os.Stat(path)
+	if err == nil {
+		if info.IsDir() {
+			m.editor.SetStatus("Journal path is a directory")
+			return *m, nil
+		}
+		return m.openFile(path)
+	}
+	if !os.IsNotExist(err) {
+		m.editor.SetStatus("Journal error: " + err.Error())
+		return *m, nil
+	}
+
+	return m.createAndOpenFile(path)
+}
+
+func (m *Model) closeOverlays() {
+	if m.picker.IsVisible() {
+		m.applyTheme(m.picker.OriginalTheme())
+		m.picker.Hide()
+	}
+	m.mode = ModeEditor
+	m.tree.Hide()
+	m.finder.Hide()
+	m.settings.Hide()
+	m.editor.SetFocused(true)
+	m.updateSizes()
 }
 
 func (m *Model) updateSizes() {
@@ -514,13 +601,18 @@ func (m Model) View() string {
 		return m.picker.View(theme, m.width, m.height)
 	}
 
+	if m.settings.IsVisible() {
+		theme := editor.ThemeByName(m.activeTheme)
+		return m.settings.View(theme, m.width, m.height)
+	}
+
 	return composed
 }
 
 // SaveState saves the current session state.
 func (m Model) SaveState() error {
 	// Save current cursor position
-	if fp := m.editor.FilePath(); fp != "" && fp != m.configPath {
+	if fp := m.editor.FilePath(); fp != "" {
 		line, col := m.editor.CursorPos()
 		rel := m.cfg.RelFilePath(fp)
 		m.state.SetCursorPos(rel, line, col)
@@ -537,33 +629,26 @@ func (m *Model) applyTheme(name string) {
 	m.finder.SetThemeColors(theme.Bg, theme.ChromeBg, theme.ChromeBg, theme.Fg, theme.AccentColor, theme.DimColor)
 }
 
-// reloadConfig re-reads the config file and hot-reloads settings that can
-// change at runtime (theme, tab width, content width, typewriter highlight,
-// autosave delay). vault_path changes require a restart.
-func (m *Model) reloadConfig() {
-	newCfg, err := config.Load()
-	if err != nil {
-		m.editor.SetStatus("Config reload failed: " + err.Error())
-		return
+func (m *Model) applySettings(newCfg config.Config) bool {
+	vaultChanged := newCfg.VaultPath != m.cfg.VaultPath
+	if vaultChanged {
+		// Keep path-sensitive settings aligned with the active vault until the
+		// process restarts and rebuilds the finder and file tree.
+		newCfg.VaultPath = m.cfg.VaultPath
+		newCfg.JournalFolder = m.cfg.JournalFolder
+		newCfg.JournalDateFormat = m.cfg.JournalDateFormat
 	}
 
-	// Theme from config always wins on reload (user explicitly saved it)
 	if newCfg.Theme != m.activeTheme {
 		m.applyTheme(newCfg.Theme)
 	}
-	if newCfg.TabWidth != m.cfg.TabWidth {
-		m.editor.SetTabWidth(newCfg.TabWidth)
-	}
-	if newCfg.ContentWidth != m.cfg.ContentWidth {
-		m.editor.SetContentWidth(newCfg.ContentWidth)
-	}
-	if newCfg.AutosaveDelay != m.cfg.AutosaveDelay {
-		m.editor.SetAutosaveDelay(newCfg.AutosaveDelay)
-	}
-
+	m.editor.SetTabWidth(newCfg.TabWidth)
+	m.editor.SetContentWidth(newCfg.ContentWidth)
+	m.editor.SetAutosaveDelay(newCfg.AutosaveDelay)
+	m.editor.SetShowLineNumbers(newCfg.ShowLineNumbers)
 	m.cfg = newCfg
-	m.updateSizes() // content width may have changed
-	m.editor.SetStatus("Config reloaded")
+	m.updateSizes()
+	return vaultChanged
 }
 
 // mergeSideBySide renders two views side by side, filling to fullWidth.

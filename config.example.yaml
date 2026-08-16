@@ -1,6 +1,14 @@
 # Wordsmith vault path (required for file navigation)
 vault_path: "/path/to/folder/with/markdown/notes"
 
+# Folder for daily journal entries. Relative paths start at the vault root;
+# absolute paths must remain inside the vault. Leave empty to disable journaling.
+journal_folder: ""
+
+# Journal filename format (default: "YYYY-MM-DD").
+# Supported date tokens: YYYY, YY, MM, DD. Wordsmith appends ".md".
+journal_date_format: "YYYY-MM-DD"
+
 # How long to wait after the last edit before autosaving (default: 2s)
 autosave_delay: "2s"
 

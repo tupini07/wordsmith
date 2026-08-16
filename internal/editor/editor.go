@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -34,13 +35,13 @@ type FileWatchTickMsg struct{}
 
 // Model is the Bubble Tea model for the editor component.
 type Model struct {
-	buffer    *Buffer
-	keymap    KeyMap
-	theme     Theme
+	buffer *Buffer
+	keymap KeyMap
+	theme  Theme
 
 	// Cursor position (logical)
-	cursorLine int
-	cursorCol  int
+	cursorLine   int
+	cursorCol    int
 	preferredCol int // for stable vertical movement
 
 	// Selection: anchor is where selection started, cursor is where it ends.
@@ -82,8 +83,9 @@ type Model struct {
 	autosaveDelay time.Duration
 
 	// Config
-	tabWidth     int
-	contentWidth int
+	tabWidth        int
+	contentWidth    int
+	showLineNumbers bool
 
 	// External change tracking
 	externallyChanged bool // file was modified externally, pending user action
@@ -146,6 +148,12 @@ func (m *Model) SetTabWidth(w int) {
 // SetContentWidth changes the zen-mode content column width and rewraps.
 func (m *Model) SetContentWidth(w int) {
 	m.contentWidth = w
+	m.rewrap()
+}
+
+// SetShowLineNumbers toggles the editor line-number gutter.
+func (m *Model) SetShowLineNumbers(show bool) {
+	m.showLineNumbers = show
 	m.rewrap()
 }
 
@@ -409,14 +417,33 @@ func (m *Model) rewrap() {
 }
 
 func (m Model) editWidth() int {
-	w := m.width
+	if m.width <= 0 {
+		return 80
+	}
+	w := m.width - m.lineNumberGutterWidth()
+	if w < 1 {
+		w = 1
+	}
 	if m.contentWidth > 0 && m.contentWidth < w {
 		w = m.contentWidth
 	}
-	if w <= 0 {
-		w = 80
-	}
 	return w
+}
+
+func (m Model) lineNumberGutterWidth() int {
+	if !m.showLineNumbers {
+		return 0
+	}
+	digits := len(strconv.Itoa(m.buffer.LineCount()))
+	return digits + 3
+}
+
+func (m Model) contentLeftMargin() int {
+	contentAreaWidth := m.editWidth() + m.lineNumberGutterWidth()
+	if m.width > contentAreaWidth {
+		return (m.width - contentAreaWidth) / 2
+	}
+	return 0
 }
 
 func (m Model) bufferLines() [][]rune {
@@ -972,12 +999,7 @@ func (m Model) handleMouseMsg(msg tea.MouseMsg) (Model, tea.Cmd) {
 	localX := msg.X - m.editorOffsetX
 	localY := msg.Y - m.editorOffsetY
 
-	// Account for zen-mode left margin
-	leftMargin := 0
-	if m.contentWidth > 0 && m.width > m.contentWidth {
-		leftMargin = (m.width - m.contentWidth) / 2
-	}
-	col := localX - leftMargin
+	col := localX - m.contentLeftMargin() - m.lineNumberGutterWidth()
 
 	// Visual row = local screen Y + scroll offset
 	visRow := localY + m.scrollOffset
@@ -2205,10 +2227,7 @@ func (m Model) View() string {
 	}
 
 	editWidth := m.editWidth()
-	leftMargin := 0
-	if m.contentWidth > 0 && m.width > m.contentWidth {
-		leftMargin = (m.width - m.contentWidth) / 2
-	}
+	leftMargin := m.contentLeftMargin()
 
 	// Determine highlight state (frontmatter / code block) for visible lines.
 	hlState := HighlightState{}
@@ -2348,6 +2367,19 @@ func (m Model) View() string {
 		renderedWidth := lipgloss.Width(rendered)
 		if renderedWidth < editWidth {
 			rendered += padStyle.Render(strings.Repeat(" ", editWidth-renderedWidth))
+		}
+
+		if m.showLineNumbers {
+			digits := m.lineNumberGutterWidth() - 3
+			number := ""
+			if vl.LogicalCol == 0 {
+				number = strconv.Itoa(vl.LogicalLine + 1)
+			}
+			gutter := fmt.Sprintf("%*s │ ", digits, number)
+			gutterStyle := lipgloss.NewStyle().
+				Foreground(m.theme.DimColor).
+				Background(padStyle.GetBackground())
+			rendered = gutterStyle.Render(gutter) + rendered
 		}
 
 		if leftMargin > 0 {
